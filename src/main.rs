@@ -132,14 +132,13 @@ fn real_main() -> Result<i32> {
             let health = health::read_health(&volume.mount_point);
             if args.json {
                 println!(
-                    "{{\"volume\":\"{}\",\"temperature_c\":{},\"thermal_status\":\"{}\",\"smart_checked\":{},\"disk_number\":{}}}",
+                    "{{\"volume\":\"{}\",\"temperature_c\":{},\"thermal_status\":\"{}\",\"disk_number\":{}}}",
                     json::escape(&volume.mount_point.display().to_string()),
                     health
                         .temperature_c
                         .map(|value| value.to_string())
                         .unwrap_or_else(|| "null".to_string()),
                     health.status.label(),
-                    health.smart_checked,
                     health
                         .disk_number
                         .map(|value| value.to_string())
@@ -159,14 +158,6 @@ fn real_main() -> Result<i32> {
                         .unwrap_or_else(|| "unknown".to_string())
                 );
                 println!("Thermal:     {}", health.status.label());
-                println!(
-                    "SMART:       {}",
-                    if health.smart_checked {
-                        "checked"
-                    } else {
-                        "not available"
-                    }
-                );
                 println!(
                     "Disk number: {}",
                     health
