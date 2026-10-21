@@ -366,6 +366,8 @@ impl App {
         cancel::reset();
         let token = CancelToken::new();
         let worker_token = token.clone();
+        let pause = PauseToken::new();
+        let worker_pause = pause.clone();
         let (tx, rx) = mpsc::channel();
         let health = self.cached_health(&target);
         let target_for_thread = target.clone();
@@ -383,6 +385,7 @@ impl App {
                         continue_on_error,
                         reuse_existing: false,
                         cancel: Some(worker_token.clone()),
+                        pause: Some(worker_pause.clone()),
                     };
                     engine::run_os(&options, &mut reporter)
                 }
@@ -400,6 +403,7 @@ impl App {
             delete_after: settings.delete_after,
             auto_export: settings.auto_export,
             report_temperature: settings.report_temperature,
+            pause,
             latest: None,
             phase: None,
             total: 0,
@@ -501,6 +505,7 @@ impl App {
                             continue_on_error,
                             reuse_existing: false,
                             cancel: Some(thread_token),
+                            pause: None,
                         };
                         engine::run_os(&options, &mut reporter)
                     }

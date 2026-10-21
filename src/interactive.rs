@@ -75,6 +75,7 @@ pub fn run(console: &Console, progress: ProgressMode) -> Result<()> {
         continue_on_error,
         reuse_existing: false,
         cancel: None,
+        pause: None,
     };
     let mut reporter = LineReporter::new(console, progress);
     let _summary = engine::run_os(&options, &mut reporter)?;

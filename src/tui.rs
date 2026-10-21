@@ -44,6 +44,7 @@ use crate::engine::{self, PhaseStats, RunOptions, Summary};
 use crate::export::{self, ExportInput, MultiReportRow};
 use crate::format;
 use crate::health::{self, DriveHealth};
+use crate::pause::PauseToken;
 use crate::png_speed;
 use crate::reporter::{ErrorInfo, ProgressInfo, Reporter};
 use crate::speed::suite::{
@@ -438,6 +439,7 @@ struct RunState {
     speed_history: Vec<(u64, f64)>,
     started: Instant,
     cancel_requested: bool,
+    pause: PauseToken,
     token: Option<CancelToken>,
     health: DriveHealth,
 }

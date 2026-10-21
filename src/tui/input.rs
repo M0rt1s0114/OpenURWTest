@@ -251,6 +251,10 @@ impl App {
                     }
                 } else if code == KeyCode::Esc || (ctrl && code == KeyCode::Char('c')) {
                     self.cancel_pending = true;
+                } else if code == KeyCode::Char('p')
+                    && let Some(run) = self.run.as_mut()
+                {
+                    run.pause.toggle();
                 }
             }
             Screen::SpeedSettings => self.handle_speed_settings(key),

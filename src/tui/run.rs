@@ -163,7 +163,12 @@ impl App {
             },
         );
 
-        let footer = if run.cancel_requested {
+        let footer = if run.pause.is_paused() {
+            format!(
+                "已暂停 - 按 p 继续   已用 {}",
+                format_seconds(run.started.elapsed().as_secs())
+            )
+        } else if run.cancel_requested {
             format!(
                 "正在取消 - 数据会保留在目标盘   已用 {}",
                 format_seconds(run.started.elapsed().as_secs())
