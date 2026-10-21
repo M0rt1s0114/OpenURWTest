@@ -389,6 +389,10 @@ fn run_phase(
             let started = Instant::now();
             thread::sleep(Duration::from_millis(20));
             paused_total += started.elapsed();
+            last = start.elapsed();
+            last_bytes = done
+                .load(Ordering::Relaxed)
+                .saturating_mul(preset.block_size);
             continue;
         }
         let finished = handles.iter().all(|handle| handle.is_finished());

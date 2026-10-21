@@ -301,6 +301,13 @@ impl PhaseProgress {
         }
     }
 
+    fn skip_pause(&mut self, paused: Duration) {
+        if !paused.is_zero() {
+            self.start += paused;
+            self.last_tick += paused;
+        }
+    }
+
     fn tick(&mut self, reporter: &mut dyn Reporter, bytes: u64) {
         if self.last_tick.elapsed() < PROGRESS_INTERVAL {
             return;
@@ -369,7 +376,9 @@ fn write_pass(
     let mut paused_total = Duration::ZERO;
 
     loop {
-        paused_total += wait_if_paused(pause, cancel);
+        let paused = wait_if_paused(pause, cancel);
+        paused_total += paused;
+        clock.skip_pause(paused);
         let free = space.free_bytes(target)?;
         if free <= MIN_FREE_SPACE {
             break;
@@ -478,7 +487,9 @@ fn verify_pass(
     let mut paused_total = Duration::ZERO;
 
     for block in 0..total {
-        paused_total += wait_if_paused(pause, cancel);
+        let paused = wait_if_paused(pause, cancel);
+        paused_total += paused;
+        clock.skip_pause(paused);
         if block.is_multiple_of(BLOCKS_PER_FILE) {
             let path = format::block_path(target, block);
             file = Some(
