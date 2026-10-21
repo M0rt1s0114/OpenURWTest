@@ -82,11 +82,19 @@ fn real_main() -> Result<i32> {
         Some(Commands::Run(args)) => {
             let target = volume::normalize_target_path(&args.target);
             resolve_target(&target)?;
+            let interactive_tui =
+                std::io::stdout().is_terminal() && std::io::stdin().is_terminal() && !cli.no_tui;
+            if !interactive_tui && target.join("Windows").is_dir() && !args.allow_system {
+                anyhow::bail!(
+                    "target contains a Windows directory; pass --allow-system to confirm"
+                );
+            }
             let options = RunOptions {
                 target: &target,
                 passes: args.passes.max(1),
                 verify: !args.no_verify,
                 continue_on_error: args.continue_on_error,
+                reuse_existing: false,
                 cancel: None,
             };
             let existing = format::scan_test_files(&target)?;
@@ -94,7 +102,7 @@ fn real_main() -> Result<i32> {
                 console.warn("Test data already exists on this volume; nothing to do.");
                 return Ok(1);
             }
-            if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() && !cli.no_tui {
+            if interactive_tui {
                 let mode = if args.no_verify {
                     tui::RunMode::WriteOnly
                 } else {

@@ -129,24 +129,26 @@ pub fn analyze(trace: &RunTrace, params: &AnalysisParams) -> Analysis {
     for segment in split_segments(&trace.points) {
         analyze_segment(&segment, params, &mut analysis);
     }
-    if !analysis.samples.is_empty() {
-        let count = analysis.samples.len() as f64;
-        let sum: f64 = analysis
+    let mut speeds: Vec<f64> = analysis
+        .samples
+        .iter()
+        .filter(|sample| sample.phase == Phase::Write && sample.speed_mibps > 0.0)
+        .map(|sample| sample.speed_mibps)
+        .collect();
+    if speeds.is_empty() {
+        speeds = analysis
             .samples
             .iter()
+            .filter(|sample| sample.speed_mibps > 0.0)
             .map(|sample| sample.speed_mibps)
-            .sum();
+            .collect();
+    }
+    if !speeds.is_empty() {
+        let count = speeds.len() as f64;
+        let sum: f64 = speeds.iter().sum();
         analysis.mean_mibps = sum / count;
-        analysis.peak_mibps = analysis
-            .samples
-            .iter()
-            .map(|sample| sample.speed_mibps)
-            .fold(0.0, f64::max);
-        analysis.min_mibps = analysis
-            .samples
-            .iter()
-            .map(|sample| sample.speed_mibps)
-            .fold(f64::INFINITY, f64::min);
+        analysis.peak_mibps = speeds.iter().copied().fold(0.0, f64::max);
+        analysis.min_mibps = speeds.iter().copied().fold(f64::INFINITY, f64::min);
     }
     analysis
 }

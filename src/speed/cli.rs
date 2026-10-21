@@ -1,11 +1,12 @@
 //! CLI entry point for the CDM-style speed suite.
 
 use std::thread;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 
 use crate::cli::SpeedArgs;
-use crate::speed::suite::{PRESETS, SpeedPreset, SuiteOptions, SuiteResult, run_suite};
+use crate::speed::suite::{PRESETS, SpeedPreset, SuiteEvent, SuiteOptions, SuiteResult, run_suite};
 
 struct TargetResult {
     target: String,
@@ -40,14 +41,52 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
         let cancel = cancel.clone();
         let seed = args.seed.unwrap_or(0x5EED_1234_ABCD_0001);
         let ignore_errors = args.ignore_errors;
+        let quiet = args.json;
+        let label = target.display().to_string();
         handles.push(thread::spawn(move || {
             let options = SuiteOptions {
                 file_size,
                 ignore_sequential_errors: ignore_errors,
                 seed,
             };
-            let result = run_suite(&target, &presets, options, cancel, &mut |_| {})
-                .map_err(|error| format!("{error:#}"));
+            let mut last_bucket = 0u64;
+            let mut last_report = Instant::now();
+            let result = run_suite(&target, &presets, options, cancel, &mut |event| {
+                if quiet {
+                    return;
+                }
+                match event {
+                    SuiteEvent::PresetStarted { index } => {
+                        eprintln!(
+                            "[{label}] {}",
+                            PRESETS.get(index).map(|preset| preset.name).unwrap_or("-")
+                        );
+                        last_bucket = 0;
+                    }
+                    SuiteEvent::PhaseStarted { index, phase } => {
+                        eprintln!(
+                            "[{label}] {} {}",
+                            PRESETS.get(index).map(|preset| preset.name).unwrap_or("-"),
+                            phase.label()
+                        );
+                    }
+                    SuiteEvent::Progress {
+                        done_bytes,
+                        total_bytes,
+                        mibps,
+                        ..
+                    } if total_bytes > 0 => {
+                        let bucket = done_bytes.saturating_mul(4) / total_bytes;
+                        if bucket > last_bucket && last_report.elapsed().as_millis() >= 200 {
+                            last_bucket = bucket;
+                            last_report = Instant::now();
+                            eprintln!("[{label}] {}%  {:.1} MiB/s", bucket * 25, mibps);
+                        }
+                    }
+                    _ => {}
+                }
+            })
+            .map_err(|error| format!("{error:#}"));
             let _ = std::fs::remove_file(target.join("BENCH0001.DAT"));
             TargetResult {
                 target: target.display().to_string(),

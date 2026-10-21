@@ -74,6 +74,10 @@ pub struct RunArgs {
     /// Keep going to the next pass when verification reports errors.
     #[arg(long)]
     pub continue_on_error: bool,
+
+    /// Allow a quality run against a volume that contains a Windows directory.
+    #[arg(long)]
+    pub allow_system: bool,
 }
 
 #[derive(Debug, Args)]

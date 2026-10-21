@@ -24,12 +24,28 @@ pub fn run(console: &Console, progress: ProgressMode) -> Result<()> {
     let volume = volume::find_volume(&target)
         .with_context(|| format!("{} is not a mounted volume root", target.display()))?;
 
-    let verify = prompt_yes_no("Verify test data after writing?", true)?;
+    if target.join("Windows").is_dir()
+        && !prompt_yes_no("Target contains Windows. Continue?", false)?
+    {
+        bail!("cancelled");
+    }
     let existing = format::scan_test_files(&target)?;
-    if !existing.is_empty() && !verify {
-        console.info("Test data already exists on this volume; nothing to do.");
+    if !existing.is_empty()
+        && prompt_yes_no(
+            "Existing test data found. Verify it instead of rewriting?",
+            true,
+        )?
+    {
+        let mut reporter = LineReporter::new(console, progress);
+        let summary = engine::verify_existing(&target, &mut reporter)?;
+        println!();
+        println!(
+            "{} pass(es): {} passed, {} failed",
+            summary.passes, summary.passed, summary.failed
+        );
         return Ok(());
     }
+    let verify = prompt_yes_no("Verify test data after writing?", true)?;
 
     let passes = prompt_u32("Number of passes", 1)?;
     let continue_on_error = if passes > 1 {
@@ -57,6 +73,7 @@ pub fn run(console: &Console, progress: ProgressMode) -> Result<()> {
         passes,
         verify,
         continue_on_error,
+        reuse_existing: false,
         cancel: None,
     };
     let mut reporter = LineReporter::new(console, progress);

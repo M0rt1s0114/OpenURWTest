@@ -952,6 +952,7 @@ impl App {
                         passes,
                         verify: mode == RunMode::WriteVerify,
                         continue_on_error,
+                        reuse_existing: false,
                         cancel: Some(worker_token.clone()),
                     };
                     engine::run_os(&options, &mut reporter)
@@ -1068,6 +1069,7 @@ impl App {
                             passes,
                             verify: mode == RunMode::WriteVerify,
                             continue_on_error,
+                            reuse_existing: false,
                             cancel: Some(thread_token),
                         };
                         engine::run_os(&options, &mut reporter)
