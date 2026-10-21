@@ -197,6 +197,7 @@ impl App {
                 Err(mpsc::TryRecvError::Disconnected) => {}
             }
         }
+        let mut analysis_finished = false;
         if let Some(rx) = self.analysis_rx.take() {
             match rx.try_recv() {
                 Ok(analysis) => {
@@ -204,10 +205,15 @@ impl App {
                         results.analysis = analysis;
                         results.message = "thresholds recalculated".to_string();
                     }
+                    analysis_finished = true;
                 }
                 Err(mpsc::TryRecvError::Empty) => self.analysis_rx = Some(rx),
-                Err(mpsc::TryRecvError::Disconnected) => {}
+                Err(mpsc::TryRecvError::Disconnected) => analysis_finished = true,
             }
+        }
+        if analysis_finished && self.analysis_pending {
+            self.analysis_pending = false;
+            self.refresh_results_async();
         }
         if self.screen == Screen::MultiRun || self.multi.is_some() {
             self.tick_multi();
@@ -215,6 +221,10 @@ impl App {
     }
 
     pub(super) fn refresh_results_async(&mut self) {
+        if self.analysis_rx.is_some() {
+            self.analysis_pending = true;
+            return;
+        }
         let Some(results) = &self.results else {
             return;
         };

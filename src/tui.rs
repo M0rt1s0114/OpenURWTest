@@ -620,6 +620,7 @@ struct App {
     export_rx: Option<mpsc::Receiver<String>>,
     multi_export_rx: Option<mpsc::Receiver<String>>,
     analysis_rx: Option<mpsc::Receiver<crate::analysis::Analysis>>,
+    analysis_pending: bool,
     cancel_pending: bool,
 }
 
@@ -658,6 +659,7 @@ impl App {
             export_rx: None,
             multi_export_rx: None,
             analysis_rx: None,
+            analysis_pending: false,
             cancel_pending: false,
         }
     }
