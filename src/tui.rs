@@ -146,24 +146,8 @@ fn app_loop_target(
         } else {
             Duration::from_millis(200)
         };
-        if event::poll(timeout)? {
-            match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    if app.handle_key(key) {
-                        break;
-                    }
-                    if app.mouse_enabled != mouse_guard.enabled {
-                        mouse_guard.set(app.mouse_enabled)?;
-                    }
-                }
-                Event::Mouse(mouse) => {
-                    if app.mouse_event(mouse) {
-                        break;
-                    }
-                }
-                Event::Resize(_, _) => {}
-                _ => {}
-            }
+        if event::poll(timeout)? && handle_terminal_event(&mut app, mouse_guard, event::read()?)? {
+            break;
         }
         app.tick();
     }
@@ -186,6 +170,31 @@ pub fn run_home(color: ColorMode, mouse: MouseMode) -> Result<()> {
     result
 }
 
+fn handle_terminal_event(
+    app: &mut App,
+    mouse_guard: &mut MouseGuard,
+    event: Event,
+) -> Result<bool> {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => {
+            if app.handle_key(key) {
+                return Ok(true);
+            }
+            if app.mouse_enabled != mouse_guard.enabled {
+                mouse_guard.set(app.mouse_enabled)?;
+            }
+        }
+        Event::Mouse(mouse) => {
+            if app.mouse_event(mouse) {
+                return Ok(true);
+            }
+        }
+        Event::Resize(_, _) => {}
+        _ => {}
+    }
+    Ok(false)
+}
+
 fn app_loop(
     mouse_guard: &mut MouseGuard,
     terminal: &mut ratatui::DefaultTerminal,
@@ -199,24 +208,8 @@ fn app_loop(
         } else {
             Duration::from_millis(200)
         };
-        if event::poll(timeout)? {
-            match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    if app.handle_key(key) {
-                        break;
-                    }
-                    if app.mouse_enabled != mouse_guard.enabled {
-                        mouse_guard.set(app.mouse_enabled)?;
-                    }
-                }
-                Event::Mouse(mouse) => {
-                    if app.mouse_event(mouse) {
-                        break;
-                    }
-                }
-                Event::Resize(_, _) => {}
-                _ => {}
-            }
+        if event::poll(timeout)? && handle_terminal_event(&mut app, mouse_guard, event::read()?)? {
+            break;
         }
         app.tick();
     }
@@ -244,17 +237,48 @@ enum TuiEvent {
     Failed(String),
 }
 
-struct ChannelReporter {
-    tx: mpsc::Sender<TuiEvent>,
+enum EventSink {
+    Single(mpsc::Sender<TuiEvent>),
+    Multi {
+        index: usize,
+        tx: mpsc::Sender<(usize, TuiEvent)>,
+    },
 }
 
-impl ChannelReporter {
+struct TuiReporter {
+    sink: EventSink,
+}
+
+impl TuiReporter {
+    fn single(tx: mpsc::Sender<TuiEvent>) -> Self {
+        Self {
+            sink: EventSink::Single(tx),
+        }
+    }
+
+    fn multi(index: usize, tx: mpsc::Sender<(usize, TuiEvent)>) -> Self {
+        Self {
+            sink: EventSink::Multi { index, tx },
+        }
+    }
+
+    fn failed(&self, message: String) {
+        self.send(TuiEvent::Failed(message));
+    }
+
     fn send(&self, event: TuiEvent) {
-        let _ = self.tx.send(event);
+        match &self.sink {
+            EventSink::Single(tx) => {
+                let _ = tx.send(event);
+            }
+            EventSink::Multi { index, tx } => {
+                let _ = tx.send((*index, event));
+            }
+        }
     }
 }
 
-impl Reporter for ChannelReporter {
+impl Reporter for TuiReporter {
     fn pass_started(&mut self, pass: u32, passes: u32) {
         self.send(TuiEvent::PassStart { pass, passes });
     }
@@ -558,54 +582,6 @@ impl MultiRun {
                 TaskStatus::Done | TaskStatus::Failed | TaskStatus::Cancelled
             )
         })
-    }
-}
-
-struct MultiReporter {
-    index: usize,
-    tx: mpsc::Sender<(usize, TuiEvent)>,
-}
-
-impl MultiReporter {
-    fn send(&self, event: TuiEvent) {
-        let _ = self.tx.send((self.index, event));
-    }
-}
-
-impl Reporter for MultiReporter {
-    fn pass_started(&mut self, pass: u32, passes: u32) {
-        self.send(TuiEvent::PassStart { pass, passes });
-    }
-    fn info(&mut self, message: &str) {
-        self.send(TuiEvent::Info(message.to_string()));
-    }
-    fn warn(&mut self, message: &str) {
-        self.send(TuiEvent::Warn(message.to_string()));
-    }
-    fn error(&mut self, error: &ErrorInfo<'_>) {
-        self.send(TuiEvent::Error(format!(
-            "{} error at pass {} block {} ({}): {}",
-            error.phase.label(),
-            error.pass,
-            error.block,
-            format_bytes(error.block.saturating_mul(format::BLOCK_SIZE)),
-            error.message
-        )));
-    }
-    fn phase_started(&mut self, _pass: u32, phase: Phase, _total: u64) {
-        self.send(TuiEvent::PhaseStart { phase });
-    }
-    fn progress(&mut self, progress: &ProgressInfo) {
-        self.send(TuiEvent::Progress(*progress));
-    }
-    fn phase_finished(&mut self, _pass: u32, phase: Phase, stats: &PhaseStats) {
-        self.send(TuiEvent::PhaseDone {
-            phase,
-            stats: *stats,
-        });
-    }
-    fn finished(&mut self, summary: &Summary) {
-        self.send(TuiEvent::Finished(Box::new(summary.clone())));
     }
 }
 
@@ -965,7 +941,7 @@ impl App {
         let health = self.cached_health(&target);
         let target_for_thread = target.clone();
         thread::spawn(move || {
-            let mut reporter = ChannelReporter { tx };
+            let mut reporter = TuiReporter::single(tx);
             let result = match mode {
                 RunMode::VerifyExisting => {
                     engine::verify_existing(&target_for_thread, &mut reporter)
@@ -982,7 +958,7 @@ impl App {
                 }
             };
             if let Err(error) = result {
-                let _ = reporter.tx.send(TuiEvent::Failed(format!("{error:#}")));
+                reporter.failed(format!("{error:#}"));
             }
         });
         self.run = Some(RunState {
@@ -1081,7 +1057,7 @@ impl App {
             let continue_on_error = settings.continue_on_error;
             let health = self.cached_health(&volume.mount_point);
             thread::spawn(move || {
-                let mut reporter = MultiReporter { index, tx };
+                let mut reporter = TuiReporter::multi(index, tx);
                 let result = match mode {
                     RunMode::VerifyExisting => {
                         engine::verify_existing(&thread_target, &mut reporter)
@@ -1098,9 +1074,7 @@ impl App {
                     }
                 };
                 if let Err(error) = result {
-                    let _ = reporter
-                        .tx
-                        .send((index, TuiEvent::Failed(format!("{error:#}"))));
+                    reporter.failed(format!("{error:#}"));
                 }
             });
             tasks.push(MultiTask {
