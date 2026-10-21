@@ -470,7 +470,7 @@ impl App {
         ]);
         let stats_line = Line::styled(
             format!(
-                "peak {:.1} MiB/s   mean {:.1} MiB/s   min {:.1} MiB/s",
+                "峰值 {:.1} MiB/s   平均 {:.1} MiB/s   最低 {:.1} MiB/s",
                 results.analysis.peak_mibps,
                 results.analysis.mean_mibps,
                 results.analysis.min_mibps
@@ -490,10 +490,7 @@ impl App {
 
         let mut event_lines: Vec<Line> = Vec::new();
         if results.analysis.events.is_empty() {
-            event_lines.push(Line::styled(
-                "no slowdown events with the current threshold",
-                self.theme.dim(),
-            ));
+            event_lines.push(Line::styled("当前阈值下没有掉速事件", self.theme.dim()));
         } else {
             for event in results.analysis.events.iter().take(8) {
                 let style = match event.kind {
@@ -502,7 +499,7 @@ impl App {
                 };
                 event_lines.push(Line::styled(
                     format!(
-                        "{}  {}  {:.1} MiB/s  depth {:.0}%  duration {}  at {}",
+                        "{}  {}  {:.1} MiB/s  深度 {:.0}%  持续 {}  位置 {}",
                         event.kind.label(),
                         event.phase.label(),
                         event.min_mibps,
@@ -517,10 +514,7 @@ impl App {
         frame.render_widget(
             Paragraph::new(event_lines).block(
                 Block::bordered()
-                    .title(format!(
-                        " Slowdown events ({}) ",
-                        results.analysis.events.len()
-                    ))
+                    .title(format!(" 掉速事件 ({}) ", results.analysis.events.len()))
                     .border_style(self.theme.border()),
             ),
             layout[2],
@@ -528,11 +522,11 @@ impl App {
 
         frame.render_widget(
             Paragraph::new(format!(
-                "threshold: {}   x axis: {}   [ ] adjust   t mode   e export   Esc back     {}",
+                "阈值: {}   X 轴: {}   [ ] 调整   t 模式   e 导出   Esc 返回     {}",
                 results.mode_label(),
                 match results.axis {
-                    Axis::Position => "position",
-                    Axis::Time => "time",
+                    Axis::Position => "位置",
+                    Axis::Time => "时间",
                 },
                 results.message
             ))
@@ -567,7 +561,7 @@ impl App {
             .collect();
         if samples.is_empty() {
             frame.render_widget(
-                Paragraph::new("no samples to draw").block(
+                Paragraph::new("没有可绘制的采样").block(
                     Block::bordered()
                         .title(" Speed ")
                         .border_style(self.theme.border()),

@@ -165,12 +165,12 @@ impl App {
 
         let footer = if run.cancel_requested {
             format!(
-                "cancelling - data will be kept on the volume   elapsed {}",
+                "正在取消 - 数据会保留在目标盘   已用 {}",
                 format_seconds(run.started.elapsed().as_secs())
             )
         } else {
             format!(
-                "{} Esc / Ctrl+C cancel (keeps test data)   elapsed {}",
+                "{} Esc / Ctrl+C 取消（保留测试数据）   已用 {}",
                 self.spinner_glyph(),
                 format_seconds(run.started.elapsed().as_secs())
             )
