@@ -144,6 +144,17 @@ fn print_text_target(target: &TargetResult) {
                     item.verify_errors,
                     item.read_errors
                 );
+                if item.write.total_ios > 0 {
+                    println!(
+                        "  latency p50 {} ns  p95 {} ns  p99 {} ns  max {} ns  ({} I/O, {:.2}s)",
+                        item.write.p50_latency_ns,
+                        item.write.p95_latency_ns,
+                        item.write.p99_latency_ns,
+                        item.write.max_latency_ns,
+                        item.write.total_ios,
+                        item.write.elapsed_secs
+                    );
+                }
             }
             if result.stopped {
                 println!(

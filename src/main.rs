@@ -9,7 +9,6 @@ mod health;
 mod interactive;
 mod io;
 mod reporter;
-#[allow(dead_code)]
 mod speed;
 mod terminal;
 mod theme;

@@ -2,6 +2,7 @@
 name = "urwtest-rs"
 version = "0.4.1-alpha"
 edition = "2024"
+rust-version = "1.91"
 description = "Mounted-volume quality and speed test tool for Windows"
 license = "GPL-3.0-or-later"
 readme = "README.md"

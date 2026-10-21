@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Speed analysis: resampling and slowdown detection.
 //!
 //! The engine records one timing point per finished block. This module turns
