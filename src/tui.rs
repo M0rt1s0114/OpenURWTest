@@ -233,7 +233,7 @@ enum TuiEvent {
     Progress(ProgressInfo),
     PhaseDone { phase: Phase, stats: PhaseStats },
     Finished(Box<Summary>),
-    Suite(SuiteEvent),
+    Suite(Box<SuiteEvent>),
     SuiteFinished(Box<SuiteResult>),
     Failed(String),
 }

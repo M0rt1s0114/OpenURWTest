@@ -80,7 +80,7 @@ pub struct SuiteOptions {
     pub seed: u64,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PresetResult {
     pub preset_index: usize,
     pub write: MetricsSnapshot,
@@ -90,6 +90,8 @@ pub struct PresetResult {
     pub verify_errors: u64,
     pub stopped: bool,
     pub stopped_at: Option<u64>,
+    pub write_curve: Vec<(u64, f64)>,
+    pub read_curve: Vec<(u64, f64)>,
 }
 
 impl PresetResult {
@@ -101,6 +103,7 @@ impl PresetResult {
 #[derive(Debug, Clone, Default)]
 pub struct SuiteResult {
     pub presets: Vec<PresetResult>,
+    pub file_size: u64,
     pub stopped: bool,
     pub cancelled: bool,
     pub stopped_at: Option<u64>,
@@ -109,7 +112,7 @@ pub struct SuiteResult {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum SuiteEvent {
     PresetStarted {
         index: usize,
@@ -165,7 +168,10 @@ pub fn run_suite(
     }
 
     let path = target.join("BENCH0001.DAT");
-    let mut result = SuiteResult::default();
+    let mut result = SuiteResult {
+        file_size: options.file_size,
+        ..SuiteResult::default()
+    };
     let mut abort = false;
 
     for preset in presets {
@@ -201,6 +207,7 @@ pub fn run_suite(
         let mut item = PresetResult {
             preset_index: index,
             write: write.metrics,
+            write_curve: write.curve.clone(),
             write_errors: write.write_errors,
             stopped_at: write.stopped_at,
             stopped: write.stopped,
@@ -213,7 +220,7 @@ pub fn run_suite(
             result.stopped_preset = Some(index);
             observer(SuiteEvent::PresetFinished {
                 index,
-                result: item,
+                result: item.clone(),
             });
             result.presets.push(item);
             break;
@@ -237,6 +244,7 @@ pub fn run_suite(
             }
         };
         item.read = read.metrics;
+        item.read_curve = read.curve.clone();
         item.read_errors = read.read_errors;
         item.verify_errors = read.verify_errors;
         item.stopped = read.stopped;
@@ -248,7 +256,7 @@ pub fn run_suite(
             result.stopped_at = item.stopped_at;
             result.stopped_preset = Some(index);
         }
-        result.presets.push(item);
+        result.presets.push(item.clone());
         observer(SuiteEvent::PresetFinished {
             index,
             result: item,
@@ -271,6 +279,7 @@ fn catalog_index(preset: &SpeedPreset) -> usize {
 
 struct PhaseOutcome {
     metrics: MetricsSnapshot,
+    curve: Vec<(u64, f64)>,
     write_errors: u64,
     read_errors: u64,
     verify_errors: u64,
@@ -337,6 +346,7 @@ fn run_phase(
     let mut last_bytes = 0u64;
     let mut errors_logged = 0u64;
     let mut first_error = None;
+    let mut curve: Vec<(u64, f64)> = Vec::new();
     loop {
         let finished = handles.iter().all(|handle| handle.is_finished());
         while let Ok(error) = error_rx.try_recv() {
@@ -365,6 +375,7 @@ fn run_phase(
                 total_bytes: file_size,
                 mibps,
             });
+            curve.push((bytes, mibps));
             last = now;
             last_bytes = bytes;
         }
@@ -407,6 +418,7 @@ fn run_phase(
     let metrics = counters.snapshot(elapsed);
     Ok(PhaseOutcome {
         metrics,
+        curve,
         write_errors,
         read_errors,
         verify_errors,

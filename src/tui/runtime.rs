@@ -577,7 +577,7 @@ impl App {
                     TuiEvent::Suite(event) => {
                         task.status = TaskStatus::Running;
                         let suite = task.suite.get_or_insert_with(SuiteView::default);
-                        match event {
+                        match *event {
                             SuiteEvent::PresetStarted { index } => {
                                 suite.current = index;
                                 suite.phase = None;
@@ -700,7 +700,7 @@ impl App {
                                     suite.bar_values[(index - 2) * 2] = Some(write_mean);
                                     suite.bar_values[(index - 2) * 2 + 1] = Some(read_mean);
                                 }
-                                suite.results.push(result);
+                                suite.results.push(result.clone());
                                 task.log.push_back(format!(
                                     "{} 完成：写 {:.1} MiB/s，读 {:.1} MiB/s，校验错误 {}",
                                     PRESETS.get(index).map(|item| item.name).unwrap_or("-"),
@@ -965,7 +965,7 @@ impl App {
                     options,
                     token_for_thread.flag(),
                     &mut |event| {
-                        let _ = tx_events.send((index, TuiEvent::Suite(event)));
+                        let _ = tx_events.send((index, TuiEvent::Suite(Box::new(event))));
                     },
                 );
                 let _ = std::fs::remove_file(thread_target.join("BENCH0001.DAT"));

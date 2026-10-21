@@ -110,6 +110,14 @@ pub struct SpeedArgs {
     #[arg(long)]
     pub seed: Option<u64>,
 
+    /// Export PNG speed charts to this directory (default: CWD/urwtest-export/<timestamp>).
+    #[arg(long)]
+    pub export: Option<PathBuf>,
+
+    /// Include temperature in speed charts.
+    #[arg(long)]
+    pub export_temperature: bool,
+
     /// Print a JSON result.
     #[arg(long)]
     pub json: bool,

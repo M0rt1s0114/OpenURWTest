@@ -11,8 +11,8 @@ use crate::analysis::Analysis;
 use crate::health::TemperatureSample;
 use crate::trace::Phase;
 
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
+pub(super) const WIDTH: u32 = 1920;
+pub(super) const HEIGHT: u32 = 1080;
 
 pub fn drive_suffix(target: &Path) -> String {
     target
@@ -29,7 +29,7 @@ pub fn quality_file_name(target: &Path) -> String {
 
 static FONT_INIT: Once = Once::new();
 
-fn ensure_font() {
+pub(super) fn ensure_font() {
     FONT_INIT.call_once(|| {
         let candidates: &[&str] = if cfg!(windows) {
             &[
@@ -173,7 +173,7 @@ pub fn write_quality_png(
     Ok(())
 }
 
-fn draw_error<E: std::fmt::Debug>(error: E) -> anyhow::Error {
+pub(super) fn draw_error<E: std::fmt::Debug>(error: E) -> anyhow::Error {
     anyhow!("failed to draw PNG: {error:?}")
 }
 
