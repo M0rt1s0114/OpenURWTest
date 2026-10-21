@@ -234,8 +234,8 @@ A multi-drive quality or speed run exports to `urwtest-export/<timestamp>/multi/
 
 ## Platforms
 
-- Windows 10/11 x86_64 is the current target.
-- The Linux code path is kept compile-clean with `cargo check --target x86_64-unknown-linux-gnu --all-targets`.
+- Windows 10/11 x86_64 is the current supported target.
+- Linux support is under development; no Linux build or release is currently produced.
 - Temperature and health are read from Windows storage properties; some USB bridges or removable devices do not expose temperature and show `unknown`.
 
 ## License
