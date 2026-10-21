@@ -127,6 +127,17 @@ impl App {
                         health.status.label()
                     ))
                 },
+                {
+                    let health = self.cached_health(&volume.mount_point);
+                    Line::from(format!(
+                        "SMART:     {}",
+                        if health.smart_checked {
+                            "checked"
+                        } else {
+                            "not available"
+                        }
+                    ))
+                },
                 Line::from(""),
                 Line::from(format!("已选:       {} 个盘", self.checked.len())),
                 Line::from(format!(
