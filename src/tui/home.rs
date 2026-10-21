@@ -77,7 +77,7 @@ impl App {
         let list = List::new(items)
             .block(
                 Block::bordered()
-                    .title(" Volumes (Up/Down) ")
+                    .title(" 卷列表 (Up/Down) ")
                     .border_style(self.theme.border()),
             )
             .highlight_symbol("> ")
@@ -141,13 +141,13 @@ impl App {
                 Line::from(""),
                 Line::from(self.message.clone()),
             ],
-            None => vec![Line::from("No testable volumes found.")],
+            None => vec![Line::from("未找到可测试的卷")],
         };
         frame.render_widget(
             Paragraph::new(details)
                 .block(
                     Block::bordered()
-                        .title(" Details ")
+                        .title(" 详情 ")
                         .border_style(self.theme.border()),
                 )
                 .wrap(Wrap { trim: true }),

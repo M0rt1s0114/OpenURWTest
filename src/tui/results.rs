@@ -480,7 +480,7 @@ impl App {
         frame.render_widget(
             Paragraph::new(vec![verdict_line, stats_line]).block(
                 Block::bordered()
-                    .title(" Result ")
+                    .title(" 结果 ")
                     .border_style(self.theme.border()),
             ),
             layout[0],

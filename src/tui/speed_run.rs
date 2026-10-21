@@ -288,7 +288,7 @@ impl App {
         frame.render_widget(
             Paragraph::new(status_lines).block(
                 Block::bordered()
-                    .title(" Status ")
+                    .title(" 状态 ")
                     .border_style(self.theme.border()),
             ),
             layout[2],
