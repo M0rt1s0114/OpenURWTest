@@ -970,4 +970,33 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&directory);
     }
+
+    #[test]
+    fn paused_run_resumes_after_token() {
+        let directory = test_dir("pause");
+        let directory_for_thread = directory.clone();
+        let pause = PauseToken::new();
+        pause.pause();
+        let pause_for_thread = pause.clone();
+        let handle = thread::spawn(move || {
+            let mut reporter = NullReporter;
+            let options = RunOptions {
+                target: &directory_for_thread,
+                passes: 1,
+                verify: true,
+                continue_on_error: false,
+                reuse_existing: false,
+                cancel: None,
+                pause: Some(pause_for_thread),
+            };
+            let space = FakeSpace::new(8 * BLOCK_SIZE);
+            (run(&options, &space, &mut reporter), directory_for_thread)
+        });
+        thread::sleep(Duration::from_millis(40));
+        assert!(!handle.is_finished());
+        pause.resume();
+        let (result, directory) = handle.join().expect("pause thread");
+        assert_eq!(result.expect("run").passed, 1);
+        let _ = std::fs::remove_dir_all(&directory);
+    }
 }
