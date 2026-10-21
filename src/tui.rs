@@ -615,6 +615,7 @@ struct App {
     settings: SettingsState,
     run: Option<RunState>,
     results: Option<ResultsState>,
+    export_rx: Option<mpsc::Receiver<String>>,
     cancel_pending: bool,
 }
 
@@ -650,6 +651,7 @@ impl App {
             settings: SettingsState::new(Settings::default()),
             run: None,
             results: None,
+            export_rx: None,
             cancel_pending: false,
         }
     }
@@ -826,6 +828,17 @@ impl App {
             self.run = None;
             self.rescan();
         }
+        if let Some(rx) = self.export_rx.take() {
+            match rx.try_recv() {
+                Ok(message) => {
+                    if let Some(results) = self.results.as_mut() {
+                        results.message = format!("{}; {}", results.message, message);
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => self.export_rx = Some(rx),
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
         if self.screen == Screen::MultiRun || self.multi.is_some() {
             self.tick_multi();
         }
@@ -852,22 +865,30 @@ impl App {
         let mut message = String::new();
         if auto_export {
             let directory = export_directory();
-            let input = ExportInput {
-                target: &target,
-                summary: &summary,
-                analysis: &analysis,
-                params: &params,
-            };
-            match export::export(&directory, &input) {
-                Ok(files) => {
-                    message = format!(
+            let export_target = target.clone();
+            let export_summary = summary.clone();
+            let export_analysis = analysis.clone();
+            let export_params = params;
+            let (tx, rx) = mpsc::channel();
+            thread::spawn(move || {
+                let input = ExportInput {
+                    target: &export_target,
+                    summary: &export_summary,
+                    analysis: &export_analysis,
+                    params: &export_params,
+                };
+                let result = match export::export(&directory, &input) {
+                    Ok(files) => format!(
                         "exported {} file(s) to {}",
                         files.len(),
                         directory.display()
-                    );
-                }
-                Err(error) => message = format!("export failed: {error}"),
-            }
+                    ),
+                    Err(error) => format!("export failed: {error}"),
+                };
+                let _ = tx.send(result);
+            });
+            self.export_rx = Some(rx);
+            message = "export started in background".to_string();
         }
         if delete_after && success {
             match format::delete_test_files(&target) {
