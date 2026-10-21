@@ -1,5 +1,12 @@
 //! Terminal user interface.
 
+mod animation;
+mod mouse;
+mod text;
+
+use mouse::{Hotspot, MouseAction, MouseGuard};
+use text::*;
+
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::io::IsTerminal;
@@ -10,8 +17,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-    KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -43,40 +50,6 @@ type SpeedSeries = Vec<(String, Vec<(u64, f64)>, ratatui::style::Color)>;
 
 const APP_NAME: &str = "OpenURWTest";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-struct MouseGuard {
-    enabled: bool,
-}
-
-impl MouseGuard {
-    fn new(enabled: bool) -> Self {
-        if enabled {
-            let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
-        }
-        Self { enabled }
-    }
-
-    fn set(&mut self, enabled: bool) -> Result<()> {
-        if enabled == self.enabled {
-            return Ok(());
-        }
-        if enabled {
-            crossterm::execute!(std::io::stdout(), EnableMouseCapture)?;
-        } else {
-            crossterm::execute!(std::io::stdout(), DisableMouseCapture)?;
-        }
-        self.enabled = enabled;
-        Ok(())
-    }
-}
-
-impl Drop for MouseGuard {
-    fn drop(&mut self) {
-        if self.enabled {
-            let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
-        }
-    }
-}
 
 const BANNER: &str = concat!(
     "█████ ████  █████ █   █ █   █ ████  █   █ █████ █████ █████ █████\n",
@@ -455,21 +428,6 @@ enum Screen {
     MultiResults,
     SpeedSettings,
     SpeedConfirm,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MouseAction {
-    Select(usize),
-    Toggle(usize),
-    Key(KeyCode),
-    FocusSettings(SettingsField),
-    FocusSpeed(usize),
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Hotspot {
-    rect: Rect,
-    action: MouseAction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1939,56 +1897,6 @@ impl App {
             }
             _ => {}
         }
-    }
-
-    fn animating(&self) -> bool {
-        if self
-            .error_flash_start
-            .is_some_and(|start| start.elapsed() < Duration::from_millis(900))
-        {
-            return true;
-        }
-        match self.screen {
-            Screen::Run => self.run.is_some(),
-            Screen::MultiRun => self.multi.as_ref().is_some_and(|multi| !multi.all_done()),
-            _ => false,
-        }
-    }
-
-    fn spinner_glyph(&self) -> char {
-        const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-        let index = (self.animation_epoch.elapsed().as_millis() / 100) as usize % FRAMES.len();
-        if self.ascii {
-            const ASCII: [char; 4] = ['|', '/', '-', '\\'];
-            ASCII[index % ASCII.len()]
-        } else {
-            FRAMES[index]
-        }
-    }
-
-    fn tab_activity_glyph(&self, kind: TestKind) -> &'static str {
-        let index = (self.animation_epoch.elapsed().as_millis() / 100) as usize;
-        if self.ascii {
-            const ASCII: [&str; 4] = ["-", "\\", "|", "/"];
-            return ASCII[index % ASCII.len()];
-        }
-        match kind {
-            TestKind::Quality => {
-                const FRAMES: [&str; 4] = ["◜", "◝", "◞", "◟"];
-                FRAMES[index % FRAMES.len()]
-            }
-            TestKind::Speed => {
-                const FRAMES: [&str; 6] = ["▁▃▅", "▃▅▇", "▅▇▅", "▇▅▃", "▅▃▁", "▃▁▃"];
-                FRAMES[index % FRAMES.len()]
-            }
-        }
-    }
-
-    fn error_pulse_on(&self) -> bool {
-        self.error_flash_start.is_some_and(|start| {
-            let elapsed = start.elapsed().as_millis();
-            elapsed < 900 && (elapsed / 150) % 2 == 0
-        })
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
@@ -4109,83 +4017,6 @@ impl ResultsState {
             Err(error) => self.message = format!("export failed: {error}"),
         }
     }
-}
-
-fn export_directory() -> PathBuf {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("urwtest-export")
-        .join(stamp.to_string())
-}
-
-fn display_width(text: &str) -> usize {
-    text.chars()
-        .map(|ch| if ch as u32 >= 0x2E80 { 2 } else { 1 })
-        .sum()
-}
-
-fn pad_display(text: &str, width: usize) -> String {
-    let used = display_width(text);
-    let mut result = text.to_string();
-    if used < width {
-        result.push_str(&" ".repeat(width - used));
-    }
-    result
-}
-
-fn trimmed_mean(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    if sorted.len() > 2 {
-        sorted = sorted[1..sorted.len() - 1].to_vec();
-    }
-    sorted.iter().sum::<f64>() / sorted.len() as f64
-}
-
-fn format_axis_bytes(bytes: u64) -> String {
-    const KIB: f64 = 1024.0;
-    const MIB: f64 = KIB * 1024.0;
-    const GIB: f64 = MIB * 1024.0;
-    const TIB: f64 = GIB * 1024.0;
-    let value = bytes as f64;
-    if value >= TIB {
-        format!("{:.1}T", value / TIB)
-    } else if value >= GIB {
-        format!("{:.1}G", value / GIB)
-    } else if value >= MIB {
-        format!("{:.1}M", value / MIB)
-    } else if value >= KIB {
-        format!("{:.1}K", value / KIB)
-    } else {
-        bytes.to_string()
-    }
-}
-
-fn format_seconds(seconds: u64) -> String {
-    format!(
-        "{:02}:{:02}:{:02}",
-        seconds / 3600,
-        (seconds % 3600) / 60,
-        seconds % 60
-    )
-}
-
-fn format_millis(millis: u64) -> String {
-    if millis >= 1000 {
-        format!("{:.1}s", millis as f64 / 1000.0)
-    } else {
-        format!("{millis}ms")
-    }
-}
-fn yes_no(value: bool) -> &'static str {
-    if value { "是" } else { "否" }
 }
 
 fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
