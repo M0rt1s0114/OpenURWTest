@@ -238,9 +238,7 @@ impl App {
                             self.cancel_pending = false;
                             if let Some(run) = self.run.as_mut() {
                                 run.cancel_requested = true;
-                                if let Some(token) = &run.token {
-                                    token.cancel();
-                                }
+                                run.control.cancel.cancel();
                             }
                             cancel::request();
                         }
@@ -251,6 +249,10 @@ impl App {
                     }
                 } else if code == KeyCode::Esc || (ctrl && code == KeyCode::Char('c')) {
                     self.cancel_pending = true;
+                } else if code == KeyCode::Char('p')
+                    && let Some(run) = self.run.as_mut()
+                {
+                    run.control.pause.toggle();
                 }
             }
             Screen::SpeedSettings => self.handle_speed_settings(key),

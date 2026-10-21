@@ -100,6 +100,7 @@ fn real_main() -> Result<i32> {
                 continue_on_error: args.continue_on_error,
                 reuse_existing: false,
                 cancel: None,
+                pause: None,
             };
             let existing = format::scan_test_files(&target)?;
             if args.no_verify && !existing.is_empty() {

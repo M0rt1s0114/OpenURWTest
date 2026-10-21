@@ -44,6 +44,7 @@ use crate::engine::{self, PhaseStats, RunOptions, Summary};
 use crate::export::{self, ExportInput, MultiReportRow};
 use crate::format;
 use crate::health::{self, DriveHealth};
+use crate::pause::PauseToken;
 use crate::png_speed;
 use crate::reporter::{ErrorInfo, ProgressInfo, Reporter};
 use crate::speed::suite::{
@@ -422,6 +423,40 @@ impl SettingsState {
     }
 }
 
+#[derive(Debug, Clone)]
+struct TaskControl {
+    cancel: CancelToken,
+    pause: PauseToken,
+}
+
+impl TaskControl {
+    fn new(cancel: CancelToken, pause: PauseToken) -> Self {
+        Self { cancel, pause }
+    }
+}
+
+struct TaskViewState {
+    latest: Option<ProgressInfo>,
+    phase: Option<Phase>,
+    total: u64,
+    log: VecDeque<String>,
+    speed_history: Vec<(u64, f64)>,
+    health: DriveHealth,
+}
+
+impl TaskViewState {
+    fn new(health: DriveHealth) -> Self {
+        Self {
+            latest: None,
+            phase: None,
+            total: 0,
+            log: VecDeque::new(),
+            speed_history: Vec::new(),
+            health,
+        }
+    }
+}
+
 struct RunState {
     rx: Receiver<TuiEvent>,
     target: String,
@@ -431,15 +466,10 @@ struct RunState {
     delete_after: bool,
     auto_export: bool,
     report_temperature: bool,
-    latest: Option<ProgressInfo>,
-    phase: Option<Phase>,
-    total: u64,
-    log: VecDeque<String>,
-    speed_history: Vec<(u64, f64)>,
+    view: TaskViewState,
     started: Instant,
     cancel_requested: bool,
-    token: Option<CancelToken>,
-    health: DriveHealth,
+    control: TaskControl,
 }
 
 struct ResultsState {
@@ -464,6 +494,12 @@ impl Axis {
             Axis::Time => Axis::Position,
         }
     }
+}
+
+trait TaskView {
+    fn task_label(&self) -> &str;
+    fn task_paused(&self) -> bool;
+    fn task_status(&self) -> TaskStatus;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -516,17 +552,12 @@ struct MultiTask {
     label: String,
     target_path: PathBuf,
     mode: RunMode,
-    token: CancelToken,
-    latest: Option<ProgressInfo>,
-    phase: Option<Phase>,
-    total: u64,
-    log: VecDeque<String>,
+    control: TaskControl,
+    view: TaskViewState,
     status: TaskStatus,
     summary: Option<Summary>,
-    speed_history: Vec<(u64, f64)>,
     suite: Option<SuiteView>,
     error: Option<String>,
-    health: DriveHealth,
     cancel_requested: bool,
 }
 
@@ -768,6 +799,34 @@ fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
         ])
         .split(vertical[1]);
     horizontal[1]
+}
+
+impl TaskView for RunState {
+    fn task_label(&self) -> &str {
+        &self.target
+    }
+
+    fn task_paused(&self) -> bool {
+        self.control.pause.is_paused()
+    }
+
+    fn task_status(&self) -> TaskStatus {
+        TaskStatus::Running
+    }
+}
+
+impl TaskView for MultiTask {
+    fn task_label(&self) -> &str {
+        &self.label
+    }
+
+    fn task_paused(&self) -> bool {
+        self.control.pause.is_paused()
+    }
+
+    fn task_status(&self) -> TaskStatus {
+        self.status
+    }
 }
 
 #[cfg(test)]

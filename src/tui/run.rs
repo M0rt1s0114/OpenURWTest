@@ -82,18 +82,19 @@ impl App {
                 )),
                 Line::from(format!(
                     " 温度 {}   热状态 {}",
-                    run.health
+                    run.view
+                        .health
                         .temperature_c
                         .map(|value| format!("{value} C"))
                         .unwrap_or_else(|| "unknown".to_string()),
-                    run.health.status.label()
+                    run.view.health.status.label()
                 )),
             ])
             .block(Block::bordered().border_style(self.theme.border())),
             layout[0],
         );
 
-        if let Some(progress) = run.latest {
+        if let Some(progress) = run.view.latest {
             frame.render_widget(
                 Paragraph::new(format!(
                     "当前 {:.1} MiB/s   平均 {:.1} MiB/s   剩余 {}   ETA {}",
@@ -108,33 +109,50 @@ impl App {
         }
 
         let (bytes, total) = run
+            .view
             .latest
             .map(|progress| (progress.bytes, progress.total_bytes))
-            .unwrap_or((0, run.total.max(1)));
+            .unwrap_or((0, run.view.total.max(1)));
         let ratio = if total > 0 {
             (bytes as f64 / total as f64).clamp(0.0, 1.0)
         } else {
             0.0
         };
+        let paused = run.task_paused();
         let gauge = Gauge::default()
             .block(
                 Block::bordered()
-                    .title(format!(
-                        " {} ",
-                        run.phase.map(Phase::label).unwrap_or("starting")
-                    ))
-                    .border_style(self.theme.border()),
+                    .title(if paused {
+                        " 已暂停 ".to_string()
+                    } else {
+                        format!(
+                            " {} ",
+                            run.view.phase.map(Phase::label).unwrap_or("starting")
+                        )
+                    })
+                    .border_style(if paused {
+                        self.theme.warning()
+                    } else {
+                        self.theme.border()
+                    }),
             )
-            .gauge_style(if run.phase == Some(Phase::Verify) {
+            .gauge_style(if paused {
+                self.theme.warning()
+            } else if run.view.phase == Some(Phase::Verify) {
                 self.theme.gauge_verify()
             } else {
                 self.theme.gauge_write()
             })
             .ratio(ratio)
-            .label(format!("{} / {}", format_bytes(bytes), format_bytes(total)));
+            .label(if paused {
+                format!("已暂停  {} / {}", format_bytes(bytes), format_bytes(total))
+            } else {
+                format!("{} / {}", format_bytes(bytes), format_bytes(total))
+            });
         frame.render_widget(gauge, layout[2]);
 
         let log_lines: Vec<Line> = run
+            .view
             .log
             .iter()
             .rev()
@@ -154,16 +172,21 @@ impl App {
         self.render_history_chart(
             frame,
             layout[4],
-            &run.speed_history,
-            run.total,
-            if run.phase == Some(Phase::Verify) {
+            &run.view.speed_history,
+            run.view.total,
+            if run.view.phase == Some(Phase::Verify) {
                 self.theme.gauge_verify()
             } else {
                 self.theme.gauge_write()
             },
         );
 
-        let footer = if run.cancel_requested {
+        let footer = if run.control.pause.is_paused() {
+            format!(
+                "已暂停 - 按 p 继续   已用 {}",
+                format_seconds(run.started.elapsed().as_secs())
+            )
+        } else if run.cancel_requested {
             format!(
                 "正在取消 - 数据会保留在目标盘   已用 {}",
                 format_seconds(run.started.elapsed().as_secs())

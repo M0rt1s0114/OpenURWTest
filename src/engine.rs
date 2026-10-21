@@ -11,6 +11,7 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -19,6 +20,7 @@ use crate::cancel::{self, CancelToken};
 use crate::format::{self, BLOCK_SIZE, BLOCKS_PER_FILE, MIN_FREE_SPACE, Prng};
 use crate::health::{self, TemperatureSample};
 use crate::io::AlignedBlock;
+use crate::pause::PauseToken;
 use crate::reporter::{ErrorInfo, ProgressInfo, Reporter};
 use crate::trace::{Phase, RunTrace};
 use crate::volume;
@@ -35,6 +37,20 @@ pub struct RunOptions<'a> {
     pub continue_on_error: bool,
     pub reuse_existing: bool,
     pub cancel: Option<CancelToken>,
+    pub pause: Option<PauseToken>,
+}
+
+fn wait_if_paused(pause: Option<&PauseToken>, cancel: Option<&CancelToken>) -> Duration {
+    let Some(pause) = pause else {
+        return Duration::ZERO;
+    };
+    let mut paused = Duration::ZERO;
+    while pause.is_paused() && !is_cancelled(cancel) {
+        let started = Instant::now();
+        thread::sleep(Duration::from_millis(20));
+        paused += started.elapsed();
+    }
+    paused
 }
 
 fn is_cancelled(cancel: Option<&CancelToken>) -> bool {
@@ -144,6 +160,7 @@ pub fn run(
                 space,
                 reporter,
                 options.cancel.as_ref(),
+                options.pause.as_ref(),
                 &mut summary.trace,
                 &mut summary.temperature_history,
                 run_start,
@@ -176,6 +193,7 @@ pub fn run(
             passes,
             reporter,
             options.cancel.as_ref(),
+            options.pause.as_ref(),
             &mut summary.trace,
             &mut summary.temperature_history,
             run_start,
@@ -238,6 +256,7 @@ pub fn verify_existing(target: &Path, reporter: &mut dyn Reporter) -> Result<Sum
         1,
         reporter,
         None,
+        None,
         &mut summary.trace,
         &mut Vec::new(),
         run_start,
@@ -282,6 +301,13 @@ impl PhaseProgress {
         }
     }
 
+    fn skip_pause(&mut self, paused: Duration) {
+        if !paused.is_zero() {
+            self.start += paused;
+            self.last_tick += paused;
+        }
+    }
+
     fn tick(&mut self, reporter: &mut dyn Reporter, bytes: u64) {
         if self.last_tick.elapsed() < PROGRESS_INTERVAL {
             return;
@@ -320,6 +346,7 @@ fn write_pass(
     space: &dyn SpaceProbe,
     reporter: &mut dyn Reporter,
     cancel: Option<&CancelToken>,
+    pause: Option<&PauseToken>,
     trace: &mut RunTrace,
     temperature_history: &mut Vec<TemperatureSample>,
     run_start: Instant,
@@ -346,8 +373,12 @@ fn write_pass(
     let mut device_lost = false;
     let mut write_errors = 0u64;
     let mut clock = PhaseProgress::new(pass, passes, Phase::Write, start_free);
+    let mut paused_total = Duration::ZERO;
 
     loop {
+        let paused = wait_if_paused(pause, cancel);
+        paused_total += paused;
+        clock.skip_pause(paused);
         let free = space.free_bytes(target)?;
         if free <= MIN_FREE_SPACE {
             break;
@@ -384,7 +415,10 @@ fn write_pass(
         }
         blocks += 1;
 
-        let phase_ms = phase_start.elapsed().as_millis() as u64;
+        let phase_ms = phase_start
+            .elapsed()
+            .saturating_sub(paused_total)
+            .as_millis() as u64;
         trace.record(
             pass,
             Phase::Write,
@@ -405,7 +439,10 @@ fn write_pass(
     drop(file);
     let stats = PhaseStats {
         bytes: blocks * BLOCK_SIZE,
-        seconds: phase_start.elapsed().as_secs_f64(),
+        seconds: phase_start
+            .elapsed()
+            .saturating_sub(paused_total)
+            .as_secs_f64(),
         interrupted,
         device_lost,
         write_errors,
@@ -422,6 +459,7 @@ fn verify_pass(
     passes: u32,
     reporter: &mut dyn Reporter,
     cancel: Option<&CancelToken>,
+    pause: Option<&PauseToken>,
     trace: &mut RunTrace,
     temperature_history: &mut Vec<TemperatureSample>,
     run_start: Instant,
@@ -446,8 +484,12 @@ fn verify_pass(
     let mut stats = PhaseStats::default();
     let mut verified = 0u64;
     let mut clock = PhaseProgress::new(pass, passes, Phase::Verify, total_bytes);
+    let mut paused_total = Duration::ZERO;
 
     for block in 0..total {
+        let paused = wait_if_paused(pause, cancel);
+        paused_total += paused;
+        clock.skip_pause(paused);
         if block.is_multiple_of(BLOCKS_PER_FILE) {
             let path = format::block_path(target, block);
             file = Some(
@@ -490,7 +532,10 @@ fn verify_pass(
         }
 
         verified += 1;
-        let phase_ms = phase_start.elapsed().as_millis() as u64;
+        let phase_ms = phase_start
+            .elapsed()
+            .saturating_sub(paused_total)
+            .as_millis() as u64;
         trace.record(
             pass,
             Phase::Verify,
@@ -593,6 +638,7 @@ mod tests {
             continue_on_error,
             reuse_existing: true,
             cancel: None,
+            pause: None,
         }
     }
 
@@ -658,6 +704,7 @@ mod tests {
             &space,
             &mut reporter,
             None,
+            None,
             &mut trace,
             &mut Vec::new(),
             Instant::now(),
@@ -683,6 +730,7 @@ mod tests {
             1,
             1,
             &mut reporter,
+            None,
             None,
             &mut trace,
             &mut Vec::new(),
@@ -712,6 +760,7 @@ mod tests {
             1,
             1,
             &mut reporter,
+            None,
             None,
             &mut trace,
             &mut Vec::new(),
@@ -784,6 +833,7 @@ mod tests {
             2,
             &mut reporter,
             None,
+            None,
             &mut trace,
             &mut Vec::new(),
             Instant::now(),
@@ -828,6 +878,7 @@ mod tests {
             &space,
             &mut reporter,
             None,
+            None,
             &mut trace,
             &mut Vec::new(),
             Instant::now(),
@@ -852,6 +903,7 @@ mod tests {
             1,
             1,
             &mut reporter,
+            None,
             None,
             &mut trace,
             &mut Vec::new(),
@@ -916,6 +968,35 @@ mod tests {
         for pair in verify_points.windows(2) {
             assert!(pair[1].position >= pair[0].position);
         }
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn paused_run_resumes_after_token() {
+        let directory = test_dir("pause");
+        let directory_for_thread = directory.clone();
+        let pause = PauseToken::new();
+        pause.pause();
+        let pause_for_thread = pause.clone();
+        let handle = thread::spawn(move || {
+            let mut reporter = NullReporter;
+            let options = RunOptions {
+                target: &directory_for_thread,
+                passes: 1,
+                verify: true,
+                continue_on_error: false,
+                reuse_existing: false,
+                cancel: None,
+                pause: Some(pause_for_thread),
+            };
+            let space = FakeSpace::new(8 * BLOCK_SIZE);
+            (run(&options, &space, &mut reporter), directory_for_thread)
+        });
+        thread::sleep(Duration::from_millis(40));
+        assert!(!handle.is_finished());
+        pause.resume();
+        let (result, directory) = handle.join().expect("pause thread");
+        assert_eq!(result.expect("run").passed, 1);
         let _ = std::fs::remove_dir_all(&directory);
     }
 }

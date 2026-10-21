@@ -60,6 +60,7 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
                 file_size,
                 ignore_sequential_errors: ignore_errors,
                 seed,
+                pause: None,
             };
             let mut last_bucket = 0u64;
             let mut last_report = Instant::now();

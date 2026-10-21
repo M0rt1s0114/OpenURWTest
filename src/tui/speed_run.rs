@@ -139,7 +139,9 @@ impl App {
             } else {
                 self.theme.dim()
             };
-            let marker = if task.status == TaskStatus::Running {
+            let marker = if task.task_paused() {
+                "暂停 ".to_string()
+            } else if task.status == TaskStatus::Running {
                 format!("{} ", self.tab_activity_glyph(TestKind::Speed))
             } else {
                 String::new()
@@ -190,20 +192,26 @@ impl App {
             Paragraph::new(vec![
                 Line::from(format!(
                     " {}  速度测试  elapsed {}  temp {}",
-                    task.label,
+                    task.task_label(),
                     format_seconds(multi.started.elapsed().as_secs()),
-                    task.health
+                    task.view
+                        .health
                         .temperature_c
                         .map(|value| format!("{value} C"))
                         .unwrap_or_else(|| "unknown".to_string())
                 )),
                 Line::from(format!(
-                    "当前 {}/{}  {}   文件 {}   错误中断 {}",
+                    "当前 {}/{}  {}   文件 {}   错误中断 {}{}",
                     ordinal,
                     selected_count,
                     preset.name,
                     format_bytes(self.speed.values.file_size),
-                    yes_no(!self.speed.values.ignore_errors)
+                    yes_no(!self.speed.values.ignore_errors),
+                    if task.task_paused() {
+                        "   已暂停"
+                    } else {
+                        ""
+                    }
                 )),
             ])
             .block(Block::bordered().border_style(self.theme.border())),
@@ -304,26 +312,38 @@ impl App {
         } else {
             0.0
         };
+        let paused = task.task_paused();
         let gauge = Gauge::default()
             .block(
                 Block::bordered()
-                    .title(
+                    .title(if paused {
+                        " 已暂停 ".to_string()
+                    } else {
                         suite
                             .and_then(|value| value.phase)
                             .map(|phase| phase.label())
-                            .unwrap_or("starting"),
-                    )
-                    .border_style(self.theme.border()),
+                            .unwrap_or("starting")
+                            .to_string()
+                    })
+                    .border_style(if paused {
+                        self.theme.warning()
+                    } else {
+                        self.theme.border()
+                    }),
             )
-            .gauge_style(
-                if suite.and_then(|value| value.phase) == Some(SuitePhase::Verify) {
-                    self.theme.gauge_verify()
-                } else {
-                    self.theme.gauge_write()
-                },
-            )
+            .gauge_style(if paused {
+                self.theme.warning()
+            } else if suite.and_then(|value| value.phase) == Some(SuitePhase::Verify) {
+                self.theme.gauge_verify()
+            } else {
+                self.theme.gauge_write()
+            })
             .ratio(ratio)
-            .label(format!("{} / {}", format_bytes(done), format_bytes(total)));
+            .label(if paused {
+                format!("已暂停  {} / {}", format_bytes(done), format_bytes(total))
+            } else {
+                format!("{} / {}", format_bytes(done), format_bytes(total))
+            });
         frame.render_widget(gauge, layout[3]);
 
         if let (Some(_suite), Some(offset)) = (suite, suite.and_then(|value| value.error_offset))
