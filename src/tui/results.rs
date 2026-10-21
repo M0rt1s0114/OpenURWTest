@@ -205,7 +205,7 @@ impl App {
             lines.push(Line::styled(
                 format!(
                     "{:<14} {:<14} {:>9} {:>9} {:>9} {:>9} {:>7}",
-                    "target", "test", "write MiB", "read MiB", "write IOPS", "read IOPS", "errors"
+                    "盘", "项目", "写 MiB/s", "读 MiB/s", "写 IOPS", "读 IOPS", "错误"
                 ),
                 self.theme.dim(),
             ));
@@ -350,7 +350,7 @@ impl App {
         lines.push(Line::styled(
             format!(
                 "{:<16} {:<8} {:<8} {:>8} {:>8} {:>8} {:>6}",
-                "target", "mode", "status", "passed", "failed", "errors", "temp"
+                "盘", "模式", "状态", "通过", "失败", "错误", "温度"
             ),
             self.theme.dim(),
         ));

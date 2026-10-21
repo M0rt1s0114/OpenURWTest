@@ -71,17 +71,17 @@ impl App {
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(format!(
-                    " {}  [{}]  passes: {}",
+                    " {}  [{}]  圈数: {}",
                     run.target,
                     match run.mode {
-                        RunMode::WriteVerify => "write + verify",
-                        RunMode::WriteOnly => "write only",
-                        RunMode::VerifyExisting => "verify existing data",
+                        RunMode::WriteVerify => "写入并校验",
+                        RunMode::WriteOnly => "仅写入",
+                        RunMode::VerifyExisting => "仅校验已有数据",
                     },
                     run.passes
                 )),
                 Line::from(format!(
-                    " temp {}   thermal {}",
+                    " 温度 {}   热状态 {}",
                     run.health
                         .temperature_c
                         .map(|value| format!("{value} C"))
@@ -96,7 +96,7 @@ impl App {
         if let Some(progress) = run.latest {
             frame.render_widget(
                 Paragraph::new(format!(
-                    "current {:.1} MiB/s   average {:.1} MiB/s   left {}   ETA {}",
+                    "当前 {:.1} MiB/s   平均 {:.1} MiB/s   剩余 {}   ETA {}",
                     progress.current_mibps,
                     progress.average_mibps,
                     format_bytes(progress.remaining_bytes),

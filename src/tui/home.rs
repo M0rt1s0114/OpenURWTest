@@ -103,23 +103,23 @@ impl App {
 
         let details = match self.selected_volume() {
             Some(volume) => vec![
-                Line::from(format!("Volume:    {}", volume.display_name())),
-                Line::from(format!("Model:     {}", volume.device_name())),
+                Line::from(format!("卷:        {}", volume.display_name())),
+                Line::from(format!("型号:      {}", volume.device_name())),
                 Line::from(format!(
-                    "Type:      {}{}",
+                    "类型:      {}{}",
                     volume.kind.label(),
                     if volume.removable { " (removable)" } else { "" }
                 )),
-                Line::from(format!("Filesystem: {}", volume.fs)),
+                Line::from(format!("文件系统:  {}", volume.fs)),
                 Line::from(format!(
-                    "Capacity:  {} total",
+                    "容量:      {} 总计",
                     format_bytes(volume.total_bytes)
                 )),
-                Line::from(format!("Free:      {}", format_bytes(volume.free_bytes))),
+                Line::from(format!("剩余:      {}", format_bytes(volume.free_bytes))),
                 {
                     let health = self.cached_health(&volume.mount_point);
                     Line::from(format!(
-                        "Temp:      {}   Thermal: {}",
+                        "温度:      {}   热状态: {}",
                         health
                             .temperature_c
                             .map(|value| format!("{value} C"))
