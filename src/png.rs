@@ -54,6 +54,39 @@ pub(super) fn ensure_font() {
     });
 }
 
+type Bucket = ((f64, f64), (f64, f64));
+
+fn compact(points: &[(f64, f64)], max_x: f64) -> Vec<(f64, f64)> {
+    const BUCKETS: usize = 1600;
+    if points.len() <= BUCKETS {
+        return points.to_vec();
+    }
+    let mut buckets: Vec<Option<Bucket>> = vec![None; BUCKETS];
+    for &(x, y) in points {
+        let index = ((x / max_x.max(f64::MIN_POSITIVE)) * BUCKETS as f64) as usize;
+        let index = index.min(BUCKETS - 1);
+        match &mut buckets[index] {
+            Some((low, high)) => {
+                if y < low.1 {
+                    *low = (x, y);
+                }
+                if y > high.1 {
+                    *high = (x, y);
+                }
+            }
+            slot => *slot = Some(((x, y), (x, y))),
+        }
+    }
+    let mut out = Vec::with_capacity(BUCKETS * 2);
+    for slot in buckets.into_iter().flatten() {
+        out.push(slot.0);
+        if slot.0 != slot.1 {
+            out.push(slot.1);
+        }
+    }
+    out
+}
+
 pub fn write_quality_png(
     path: &Path,
     target: &Path,
@@ -94,6 +127,7 @@ pub fn write_quality_png(
             )
         })
         .collect();
+    let temperature = compact(&temperature, max_time);
     let min_temp = temperature
         .iter()
         .map(|(_, value)| *value)
@@ -136,12 +170,14 @@ pub fn write_quality_png(
         .filter(|sample| sample.phase == Phase::Write)
         .map(|sample| (sample.run_ms as f64 / 1000.0, sample.speed_mibps))
         .collect();
+    let write = compact(&write, max_time);
     let read: Vec<(f64, f64)> = analysis
         .samples
         .iter()
         .filter(|sample| sample.phase == Phase::Verify)
         .map(|sample| (sample.run_ms as f64 / 1000.0, sample.speed_mibps))
         .collect();
+    let read = compact(&read, max_time);
     if !write.is_empty() {
         chart
             .draw_series(LineSeries::new(write, BLUE.stroke_width(2)))
