@@ -118,7 +118,7 @@ Every selected preset is a complete write-then-read flow:
 1. the whole file is written (measured);
 2. the file is read back and every block is verified (read measured; comparison happens outside the I/O timer).
 
-Sequential presets stop the whole suite for that drive on the first read or verification error, mark the result red, and log the written offset where corruption was found. The option "continue on sequential errors" keeps going instead. RND4K read or verification errors are logged but do not stop the suite.
+Sequential presets stop the whole suite for that drive on the first read or verification error, mark the result red, and log the written offset where corruption was found. The "error interruption" option is on by default; turn it off to continue after sequential errors. RND4K read or verification errors are logged but do not stop the suite.
 
 All presets draw a live write/read line chart while running. The active phase uses a braille spinner; running QC tabs use a rotating quadrant and running SC tabs use a mini equalizer. An error state pulses once and then stays red. After the suite finishes, the result screen overlays the sequential write/read curves and shows the four 4K bars together; random bars use a trimmed mean that drops the highest and lowest samples. The progress bar marks the error position in red.
 

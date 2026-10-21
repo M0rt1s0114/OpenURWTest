@@ -62,8 +62,8 @@ impl App {
             format_bytes(values.file_size)
         )));
         lines.push(Line::from(format!(
-            "顺序项错误继续: {}",
-            yes_no(values.ignore_errors)
+            "错误中断: {}",
+            yes_no(!values.ignore_errors)
         )));
         lines.push(Line::from(""));
         let block = Block::bordered()
