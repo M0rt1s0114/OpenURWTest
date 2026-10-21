@@ -1,7 +1,5 @@
 //! CLI entry point for the CDM-style speed suite.
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::thread;
 
 use anyhow::{Context, Result, bail};
@@ -14,13 +12,14 @@ struct TargetResult {
     result: Result<SuiteResult, String>,
 }
 
-pub fn run(args: &SpeedArgs) -> Result<()> {
+pub fn run(args: &SpeedArgs) -> Result<i32> {
     let file_size = parse_size(&args.size).context("invalid file size")?;
     if args.target.is_empty() {
         bail!("at least one --target is required");
     }
     let presets = selected_presets(&args.preset)?;
-    let cancel = Arc::new(AtomicBool::new(false));
+    crate::cancel::reset();
+    let cancel = crate::cancel::flag();
     let mut handles = Vec::with_capacity(args.target.len());
 
     for target in &args.target {
@@ -29,7 +28,7 @@ pub fn run(args: &SpeedArgs) -> Result<()> {
         }
         let target = target.clone();
         let presets = presets.clone();
-        let cancel = Arc::clone(&cancel);
+        let cancel = cancel.clone();
         let seed = args.seed.unwrap_or(0x5EED_1234_ABCD_0001);
         let ignore_errors = args.ignore_errors;
         handles.push(thread::spawn(move || {
@@ -62,7 +61,23 @@ pub fn run(args: &SpeedArgs) -> Result<()> {
             print_text_target(target);
         }
     }
-    Ok(())
+    Ok(suite_exit_code(&results))
+}
+
+fn suite_exit_code(results: &[TargetResult]) -> i32 {
+    let mut code = 0;
+    for target in results {
+        match &target.result {
+            Err(_) => code = code.max(1),
+            Ok(result) if result.cancelled => code = 130,
+            Ok(result) => {
+                if result.stopped || result.presets.iter().any(|preset| preset.failed()) {
+                    code = code.max(1);
+                }
+            }
+        }
+    }
+    code
 }
 
 fn selected_presets(values: &[String]) -> Result<Vec<SpeedPreset>> {
@@ -191,7 +206,19 @@ fn json_target(target: &TargetResult) -> String {
 }
 
 fn json_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch < ' ' => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 pub fn parse_size(value: &str) -> Result<u64> {
@@ -236,6 +263,42 @@ mod tests {
     #[test]
     fn selects_all_presets_by_default() {
         assert_eq!(selected_presets(&[]).expect("presets").len(), 4);
+    }
+
+    #[test]
+    fn exit_code_reflects_suite_outcome() {
+        let ok = TargetResult {
+            target: "X:\\".to_string(),
+            result: Ok(SuiteResult::default()),
+        };
+        assert_eq!(suite_exit_code(&[ok]), 0);
+
+        let cancelled = TargetResult {
+            target: "X:\\".to_string(),
+            result: Ok(SuiteResult {
+                cancelled: true,
+                ..SuiteResult::default()
+            }),
+        };
+        assert_eq!(suite_exit_code(&[cancelled]), 130);
+
+        let failed = TargetResult {
+            target: "X:\\".to_string(),
+            result: Ok(SuiteResult {
+                presets: vec![crate::speed::suite::PresetResult {
+                    verify_errors: 1,
+                    ..Default::default()
+                }],
+                ..SuiteResult::default()
+            }),
+        };
+        assert_eq!(suite_exit_code(&[failed]), 1);
+
+        let error = TargetResult {
+            target: "X:\\".to_string(),
+            result: Err("broken".to_string()),
+        };
+        assert_eq!(suite_exit_code(&[error]), 1);
     }
 
     #[test]

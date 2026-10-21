@@ -137,6 +137,7 @@ fn write_report(path: &Path, input: &ExportInput<'_>) -> Result<()> {
     push_pair(&mut json, "read_bytes", &summary.read_bytes.to_string());
     push_pair(&mut json, "data_errors", &summary.data_errors.to_string());
     push_pair(&mut json, "read_errors", &summary.read_errors.to_string());
+    push_pair(&mut json, "write_errors", &summary.write_errors.to_string());
     push_pair(
         &mut json,
         "peak_mibps",
@@ -231,7 +232,7 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
         sheet.write_string(0, 1, "value")?;
         let summary = input.summary;
         let params = input.params;
-        let rows: [(&str, String); 19] = [
+        let rows: [(&str, String); 20] = [
             ("target", input.target.display().to_string()),
             ("passes", summary.passes.to_string()),
             ("passed", summary.passed.to_string()),
@@ -240,6 +241,7 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
             ("read_bytes", summary.read_bytes.to_string()),
             ("data_errors", summary.data_errors.to_string()),
             ("read_errors", summary.read_errors.to_string()),
+            ("write_errors", summary.write_errors.to_string()),
             ("peak_mibps", format!("{:.3}", input.analysis.peak_mibps)),
             ("mean_mibps", format!("{:.3}", input.analysis.mean_mibps)),
             ("min_mibps", format!("{:.3}", input.analysis.min_mibps)),
