@@ -9,18 +9,33 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary: urwtest-rs.exe
-            artifact: urwtest-rs-windows-x86_64
+  version:
+    name: Read version
+    runs-on: ubuntu-latest
+    outputs:
+      alpha: ${{ steps.version.outputs.alpha }}
+      beta: ${{ steps.version.outputs.beta }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Read Cargo version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          case "$VERSION" in
+            *-alpha*) echo "alpha=true" >> "$GITHUB_OUTPUT"; echo "beta=false" >> "$GITHUB_OUTPUT" ;;
+            *-beta*)  echo "alpha=false" >> "$GITHUB_OUTPUT"; echo "beta=true" >> "$GITHUB_OUTPUT" ;;
+            *)        echo "alpha=false" >> "$GITHUB_OUTPUT"; echo "beta=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  gate:
+    name: Gates
+    needs: version
+    if: needs.version.outputs.alpha != 'true'
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -28,31 +43,56 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --locked --release
+
+  build:
+    name: Build Windows x86_64
+    needs: gate
+    if: needs.gate.result == 'success'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build
-        run: cargo build --locked --release --target ${{ matrix.target }}
-
-      - name: Test
-        run: cargo test --locked --release --target ${{ matrix.target }}
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ${{ matrix.artifact }}
-          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          name: urwtest-rs-windows-x86_64
+          path: target/x86_64-pc-windows-msvc/release/urwtest-rs.exe
           if-no-files-found: error
 
   release:
     name: Publish GitHub Release
-    needs: build
+    needs:
+      - version
+      - build
+    if: needs.version.outputs.alpha != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -71,4 +111,5 @@ jobs:
           files: |
             release/urwtest-rs.exe
             release/SHA256SUMS.txt
+          prerelease: ${{ needs.version.outputs.beta == 'true' }}
           generate_release_notes: true
