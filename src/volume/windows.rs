@@ -148,7 +148,7 @@ pub fn list_volumes() -> Vec<VolumeInfo> {
             mount_point: PathBuf::from(root),
             fs,
             total_bytes,
-            free_bytes: total_free_bytes,
+            free_bytes: free_to_caller,
             kind,
             label,
             model: descriptor.model,
@@ -177,7 +177,7 @@ pub fn available_space(path: &Path) -> Result<u64> {
     if ok == 0 {
         return Err(anyhow!("GetDiskFreeSpaceExW failed for {}", path.display()));
     }
-    Ok(total_free_bytes)
+    Ok(free_to_caller)
 }
 
 fn query_device_descriptor(letter: char) -> Option<DeviceDescriptor> {

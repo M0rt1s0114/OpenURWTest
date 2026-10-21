@@ -385,7 +385,7 @@ fn run_phase(
     let mut next_temperature = Instant::now();
     let mut paused_total = Duration::ZERO;
     loop {
-        if pause.is_some_and(PauseToken::is_paused) {
+        if pause.is_some_and(PauseToken::is_paused) && !cancel.load(Ordering::SeqCst) {
             let started = Instant::now();
             thread::sleep(Duration::from_millis(20));
             paused_total += started.elapsed();
@@ -796,6 +796,37 @@ mod tests {
         pause.resume();
         let result = handle.join().expect("pause thread");
         assert_eq!(result.presets.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cancelling_a_paused_suite_finishes() {
+        let dir = temp_dir("speed-cancel-pause");
+        let pause = PauseToken::new();
+        pause.pause();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_for_thread = Arc::clone(&cancel);
+        let pause_for_thread = pause.clone();
+        let dir_for_thread = dir.clone();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut options = options(8 * 4096);
+            options.pause = Some(pause_for_thread);
+            let result = run_suite(
+                &dir_for_thread,
+                &[preset(4096, true)],
+                options,
+                cancel_for_thread,
+                &mut |_| {},
+            );
+            let _ = tx.send(result.is_ok());
+        });
+        thread::sleep(Duration::from_millis(40));
+        cancel.store(true, Ordering::SeqCst);
+        assert!(
+            rx.recv_timeout(Duration::from_secs(2))
+                .expect("suite did not finish")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

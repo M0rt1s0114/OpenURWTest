@@ -1,5 +1,4 @@
 //! Cooperative pause flag shared by the engine and TUI.
-#![allow(dead_code)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
