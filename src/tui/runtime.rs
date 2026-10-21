@@ -1023,15 +1023,25 @@ impl App {
             return;
         };
         let directory = export_directory().join("multi");
+        let png_inputs = self.speed_png_inputs();
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let message = match export::export_multi(&directory, kind, &rows) {
-                Ok(files) => format!(
-                    "exported {} file(s) to {}",
-                    files.len(),
-                    directory.display()
-                ),
-                Err(error) => format!("export failed: {error}"),
+            let mut count = 0usize;
+            let mut error = None;
+            match export::export_multi(&directory, kind, &rows) {
+                Ok(files) => count += files.len(),
+                Err(value) => error = Some(format!("report export failed: {value}")),
+            }
+            for (target, result) in &png_inputs {
+                match png_speed::write_speed_pngs(&directory, target, result) {
+                    Ok(files) => count += files.len(),
+                    Err(value) => error = Some(format!("PNG export failed: {value}")),
+                }
+            }
+            let message = if let Some(error) = error {
+                error
+            } else {
+                format!("exported {count} file(s) to {}", directory.display())
             };
             let _ = tx.send(message);
         });
@@ -1046,17 +1056,59 @@ impl App {
             return;
         };
         let directory = export_directory().join("multi");
-        let message = match export::export_multi(&directory, kind, &rows) {
-            Ok(files) => format!(
-                "exported {} file(s) to {}",
-                files.len(),
-                directory.display()
-            ),
-            Err(error) => format!("export failed: {error}"),
+        let mut count = 0usize;
+        let mut error = None;
+        match export::export_multi(&directory, kind, &rows) {
+            Ok(files) => count += files.len(),
+            Err(value) => error = Some(format!("report export failed: {value}")),
+        }
+        for (target, result) in self.speed_png_inputs() {
+            match png_speed::write_speed_pngs(&directory, &target, &result) {
+                Ok(files) => count += files.len(),
+                Err(value) => error = Some(format!("PNG export failed: {value}")),
+            }
+        }
+        let message = if let Some(error) = error {
+            error
+        } else {
+            format!("exported {count} file(s) to {}", directory.display())
         };
         if let Some(multi) = self.multi.as_mut() {
             multi.export_message = message;
         }
+    }
+
+    fn speed_png_inputs(&self) -> Vec<(PathBuf, SuiteResult)> {
+        let Some(multi) = self.multi.as_ref() else {
+            return Vec::new();
+        };
+        if multi.kind != TestKind::Speed {
+            return Vec::new();
+        }
+        multi
+            .tasks
+            .iter()
+            .filter_map(|task| {
+                let suite = task.suite.as_ref()?;
+                if suite.results.is_empty() {
+                    return None;
+                }
+                let result = SuiteResult {
+                    file_size: suite.total_bytes.max(
+                        suite
+                            .results
+                            .iter()
+                            .flat_map(|item| item.write_curve.iter().chain(item.read_curve.iter()))
+                            .map(|(bytes, _)| *bytes)
+                            .max()
+                            .unwrap_or(0),
+                    ),
+                    presets: suite.results.clone(),
+                    ..SuiteResult::default()
+                };
+                Some((task.target_path.clone(), result))
+            })
+            .collect()
     }
 
     pub(super) fn multi_report_rows(&self) -> Option<(&'static str, Vec<MultiReportRow>)> {

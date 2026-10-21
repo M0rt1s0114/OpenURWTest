@@ -44,6 +44,7 @@ use crate::engine::{self, PhaseStats, RunOptions, Summary};
 use crate::export::{self, ExportInput, MultiReportRow};
 use crate::format;
 use crate::health::{self, DriveHealth};
+use crate::png_speed;
 use crate::reporter::{ErrorInfo, ProgressInfo, Reporter};
 use crate::speed::suite::{
     PRESETS, PresetResult, SuiteEvent, SuiteOptions, SuitePhase, SuiteResult, run_suite,
