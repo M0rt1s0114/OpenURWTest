@@ -139,7 +139,9 @@ impl App {
             } else {
                 self.theme.dim()
             };
-            let marker = if task.status == TaskStatus::Running {
+            let marker = if task.task_paused() {
+                "暂停 ".to_string()
+            } else if task.status == TaskStatus::Running {
                 format!("{} ", self.tab_activity_glyph(TestKind::Speed))
             } else {
                 String::new()
