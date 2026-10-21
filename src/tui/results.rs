@@ -79,7 +79,7 @@ impl App {
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(format!(
-                    " {}  [{}]  temp {}  health {}",
+                    " {}  [{}]  temp {}  thermal {}",
                     task.label,
                     match task.mode {
                         RunMode::WriteVerify => "写入并校验",

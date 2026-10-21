@@ -119,7 +119,7 @@ impl App {
                 {
                     let health = self.cached_health(&volume.mount_point);
                     Line::from(format!(
-                        "Temp:      {}   Health: {}",
+                        "Temp:      {}   Thermal: {}",
                         health
                             .temperature_c
                             .map(|value| format!("{value} C"))

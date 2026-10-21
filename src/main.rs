@@ -132,7 +132,7 @@ fn real_main() -> Result<i32> {
             let health = health::read_health(&volume.mount_point);
             if args.json {
                 println!(
-                    "{{\"volume\":\"{}\",\"temperature_c\":{},\"health\":\"{}\",\"disk_number\":{}}}",
+                    "{{\"volume\":\"{}\",\"temperature_c\":{},\"thermal_status\":\"{}\",\"disk_number\":{}}}",
                     json::escape(&volume.mount_point.display().to_string()),
                     health
                         .temperature_c
@@ -157,7 +157,7 @@ fn real_main() -> Result<i32> {
                         .map(|value| format!("{value} C"))
                         .unwrap_or_else(|| "unknown".to_string())
                 );
-                println!("Health:      {}", health.status.label());
+                println!("Thermal:     {}", health.status.label());
                 println!(
                     "Disk number: {}",
                     health

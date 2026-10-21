@@ -81,7 +81,7 @@ impl App {
                     run.passes
                 )),
                 Line::from(format!(
-                    " temp {}   health {}",
+                    " temp {}   thermal {}",
                     run.health
                         .temperature_c
                         .map(|value| format!("{value} C"))
