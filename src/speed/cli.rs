@@ -16,6 +16,9 @@ struct TargetResult {
 }
 
 pub fn run(args: &SpeedArgs) -> Result<i32> {
+    if args.export_temperature {
+        bail!("--export-temperature is not implemented yet");
+    }
     let file_size = parse_size(&args.size).context("invalid file size")?;
     if args.target.is_empty() {
         bail!("at least one --target is required");
