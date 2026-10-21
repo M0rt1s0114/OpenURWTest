@@ -21,10 +21,19 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
     crate::cancel::reset();
     let cancel = crate::cancel::flag();
     let mut handles = Vec::with_capacity(args.target.len());
+    let mut seen = std::collections::HashSet::new();
 
     for target in &args.target {
         if !target.exists() {
             bail!("target does not exist: {}", target.display());
+        }
+        if !target.is_dir() {
+            bail!("target is not a directory: {}", target.display());
+        }
+        let canonical = std::fs::canonicalize(target)
+            .with_context(|| format!("failed to resolve {}", target.display()))?;
+        if !seen.insert(canonical) {
+            bail!("duplicate target: {}", target.display());
         }
         let target = target.clone();
         let presets = presets.clone();
@@ -37,10 +46,12 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
                 ignore_sequential_errors: ignore_errors,
                 seed,
             };
+            let result = run_suite(&target, &presets, options, cancel, &mut |_| {})
+                .map_err(|error| format!("{error:#}"));
+            let _ = std::fs::remove_file(target.join("BENCH0001.DAT"));
             TargetResult {
                 target: target.display().to_string(),
-                result: run_suite(&target, &presets, options, cancel, &mut |_| {})
-                    .map_err(|error| format!("{error:#}")),
+                result,
             }
         }));
     }

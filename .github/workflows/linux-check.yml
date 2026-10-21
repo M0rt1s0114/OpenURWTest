@@ -30,7 +30,7 @@ jobs:
         uses: Swatinem/rust-cache@v2.9.2
 
       - name: Check
-        run: cargo check --all-targets --target x86_64-unknown-linux-gnu
+        run: cargo check --locked --all-targets --target x86_64-unknown-linux-gnu
 
       - name: Test
-        run: cargo test --release --target x86_64-unknown-linux-gnu
+        run: cargo test --locked --release --target x86_64-unknown-linux-gnu

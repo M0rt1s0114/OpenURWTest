@@ -283,8 +283,12 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
         for (column, header) in headers.iter().enumerate() {
             sheet.write_string(0, column as u16, *header)?;
         }
+        const EXCEL_MAX_ROWS: u32 = 1_048_576;
         for (index, sample) in input.analysis.samples.iter().enumerate() {
             let row = index as u32 + 1;
+            if row >= EXCEL_MAX_ROWS {
+                break;
+            }
             sheet.write_number(row, 0, sample.pass as f64)?;
             sheet.write_string(row, 1, sample.phase.label())?;
             sheet.write_number(row, 2, sample.run_ms as f64)?;
@@ -315,8 +319,12 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
         for (column, header) in headers.iter().enumerate() {
             sheet.write_string(0, column as u16, *header)?;
         }
+        const EXCEL_MAX_ROWS: u32 = 1_048_576;
         for (index, event) in input.analysis.events.iter().enumerate() {
             let row = index as u32 + 1;
+            if row >= EXCEL_MAX_ROWS {
+                break;
+            }
             sheet.write_number(row, 0, event.pass as f64)?;
             sheet.write_string(row, 1, event.phase.label())?;
             sheet.write_string(row, 2, event.kind.label())?;
