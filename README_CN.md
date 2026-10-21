@@ -84,7 +84,7 @@ urwtest-rs
 | 圈数 | 1–99，默认 1；仅校验已有数据时固定为 1 |
 | 出错后继续下一圈 | 默认否；仅在写入并校验且圈数大于 1 时可设置 |
 | 成功后删除测试文件 | 默认否；仅在正常成功完成后删除 |
-| 结束后自动导出报告 | 默认是；导出到 `./urwtest-export` |
+| 结束后自动导出报告 | 默认是；导出到 `./urwtest-export` 下的时间戳目录 |
 
 设置完成后显示选项汇总。可移动磁盘在此确认后开始；固定磁盘显示黄色警告；包含 Windows 的卷显示红色警告，并需要第二个确认对话框。
 
@@ -222,7 +222,7 @@ urwtest-rs speed --target E:\ --target D:\ --size 4g --json
 | `speed_position.svg` | 按写入位置的速度图 |
 | `speed_time.svg` | 按时间的速度图 |
 
-多盘质量或速度测试导出到 `urwtest-export/multi/`：
+多盘质量或速度测试导出到 `urwtest-export/<timestamp>/multi/`：
 
 | 文件 | 内容 |
 | --- | --- |

@@ -253,46 +253,49 @@ fn causal_baselines(
     let capacity = (params.baseline_window_ms / interval).max(1) as usize;
     let warmup = samples.len().clamp(1, 5);
 
-    let mut history: std::collections::VecDeque<f64> = samples[..warmup]
+    let mut history: Vec<f64> = samples[..warmup]
         .iter()
         .map(|sample| sample.speed_mibps)
         .collect();
-    let mut reference = {
-        let mut values: Vec<f64> = history.iter().copied().collect();
-        median(&mut values)
-    };
+    history.sort_by(f64::total_cmp);
+    let mut reference = median_sorted(&history);
 
     let mut slow = Vec::with_capacity(samples.len());
     let mut values = Vec::with_capacity(samples.len());
+    let mut in_slow = false;
     for sample in samples {
         if sample.phase_ms < params.window_ms {
             slow.push(false);
             values.push((reference, 0.0));
             continue;
         }
-        let threshold = threshold_for(reference, params);
+        let threshold = if in_slow {
+            reference * params.recovery_percent / 100.0
+        } else {
+            threshold_for(reference, params)
+        };
         let is_slow = threshold > 0.0 && sample.speed_mibps < threshold;
+        in_slow = is_slow;
         slow.push(is_slow);
         values.push((reference, threshold));
         if !is_slow && sample.speed_mibps > 0.0 {
-            history.push_back(sample.speed_mibps);
+            let speed = sample.speed_mibps;
+            let index = history.partition_point(|value| value.total_cmp(&speed).is_lt());
+            history.insert(index, speed);
             while history.len() > capacity {
-                history.pop_front();
+                history.remove(0);
             }
-            let mut sorted: Vec<f64> = history.iter().copied().collect();
-            reference = median(&mut sorted);
+            reference = median_sorted(&history);
         }
     }
     (slow, values)
 }
 
-fn median(values: &mut [f64]) -> f64 {
+fn median_sorted(values: &[f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
     }
-    let mid = values.len() / 2;
-    values.select_nth_unstable_by(mid, f64::total_cmp);
-    values[mid]
+    values[values.len() / 2]
 }
 
 fn threshold_for(baseline: f64, params: &AnalysisParams) -> f64 {
@@ -380,13 +383,6 @@ fn detect_events(
             continue;
         }
         merged.push(event);
-    }
-    for event in &mut merged {
-        event.kind = if event.duration_ms <= params.recovery_window_ms {
-            SlowKind::Spike
-        } else {
-            SlowKind::Sustained
-        };
     }
     for event in &mut merged {
         event.kind = if event.duration_ms <= params.recovery_window_ms {
