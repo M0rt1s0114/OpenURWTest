@@ -572,11 +572,10 @@ fn fill_pattern(buffer: &mut [u8], block: u64, seed: u64) {
         state ^= state >> 27;
         state.wrapping_mul(0x2545_F491_4F6C_DD1D)
     };
-    let mut chunks = buffer.chunks_exact_mut(8);
-    for chunk in &mut chunks {
+    let (chunks, remainder) = buffer.as_chunks_mut::<8>();
+    for chunk in chunks {
         chunk.copy_from_slice(&next().to_le_bytes());
     }
-    let remainder = chunks.into_remainder();
     if !remainder.is_empty() {
         let value = next().to_le_bytes();
         remainder.copy_from_slice(&value[..remainder.len()]);
