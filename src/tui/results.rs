@@ -62,11 +62,13 @@ impl App {
 
         let task = &multi.tasks[active];
         let temperature = task
+            .view
             .health
             .temperature_c
             .map(|value| format!("{value} C"))
             .unwrap_or_else(|| "unknown".to_string());
         let stats = task
+            .view
             .latest
             .map(|progress| {
                 format!(
@@ -89,7 +91,7 @@ impl App {
                         RunMode::VerifyExisting => "仅校验",
                     },
                     temperature,
-                    task.health.status.label()
+                    task.view.health.status.label()
                 )),
                 Line::from(stats),
             ])
@@ -98,9 +100,10 @@ impl App {
         );
 
         let (bytes, total) = task
+            .view
             .latest
             .map(|progress| (progress.bytes, progress.total_bytes))
-            .unwrap_or((0, task.total.max(1)));
+            .unwrap_or((0, task.view.total.max(1)));
         let ratio = if total > 0 {
             (bytes as f64 / total as f64).clamp(0.0, 1.0)
         } else {
@@ -113,7 +116,8 @@ impl App {
                     .title(if paused {
                         "已暂停".to_string()
                     } else {
-                        task.phase
+                        task.view
+                            .phase
                             .map(Phase::label)
                             .unwrap_or("starting")
                             .to_string()
@@ -126,7 +130,7 @@ impl App {
             )
             .gauge_style(if paused {
                 self.theme.warning()
-            } else if task.phase == Some(Phase::Verify) {
+            } else if task.view.phase == Some(Phase::Verify) {
                 self.theme.gauge_verify()
             } else {
                 self.theme.gauge_write()
@@ -140,6 +144,7 @@ impl App {
         frame.render_widget(gauge, layout[2]);
 
         let log_lines: Vec<Line> = task
+            .view
             .log
             .iter()
             .rev()
@@ -159,9 +164,9 @@ impl App {
         self.render_history_chart(
             frame,
             layout[4],
-            &task.speed_history,
-            task.total,
-            if task.phase == Some(Phase::Verify) {
+            &task.view.speed_history,
+            task.view.total,
+            if task.view.phase == Some(Phase::Verify) {
                 self.theme.gauge_verify()
             } else {
                 self.theme.gauge_write()
@@ -399,7 +404,8 @@ impl App {
                     summary
                         .map(|value| value.data_errors + value.read_errors)
                         .unwrap_or(0),
-                    task.health
+                    task.view
+                        .health
                         .temperature_c
                         .map(|value| format!("{value}C"))
                         .unwrap_or_else(|| "-".to_string())

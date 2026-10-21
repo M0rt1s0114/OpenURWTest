@@ -82,18 +82,19 @@ impl App {
                 )),
                 Line::from(format!(
                     " 温度 {}   热状态 {}",
-                    run.health
+                    run.view
+                        .health
                         .temperature_c
                         .map(|value| format!("{value} C"))
                         .unwrap_or_else(|| "unknown".to_string()),
-                    run.health.status.label()
+                    run.view.health.status.label()
                 )),
             ])
             .block(Block::bordered().border_style(self.theme.border())),
             layout[0],
         );
 
-        if let Some(progress) = run.latest {
+        if let Some(progress) = run.view.latest {
             frame.render_widget(
                 Paragraph::new(format!(
                     "当前 {:.1} MiB/s   平均 {:.1} MiB/s   剩余 {}   ETA {}",
@@ -108,9 +109,10 @@ impl App {
         }
 
         let (bytes, total) = run
+            .view
             .latest
             .map(|progress| (progress.bytes, progress.total_bytes))
-            .unwrap_or((0, run.total.max(1)));
+            .unwrap_or((0, run.view.total.max(1)));
         let ratio = if total > 0 {
             (bytes as f64 / total as f64).clamp(0.0, 1.0)
         } else {
@@ -123,7 +125,10 @@ impl App {
                     .title(if paused {
                         " 已暂停 ".to_string()
                     } else {
-                        format!(" {} ", run.phase.map(Phase::label).unwrap_or("starting"))
+                        format!(
+                            " {} ",
+                            run.view.phase.map(Phase::label).unwrap_or("starting")
+                        )
                     })
                     .border_style(if paused {
                         self.theme.warning()
@@ -133,7 +138,7 @@ impl App {
             )
             .gauge_style(if paused {
                 self.theme.warning()
-            } else if run.phase == Some(Phase::Verify) {
+            } else if run.view.phase == Some(Phase::Verify) {
                 self.theme.gauge_verify()
             } else {
                 self.theme.gauge_write()
@@ -147,6 +152,7 @@ impl App {
         frame.render_widget(gauge, layout[2]);
 
         let log_lines: Vec<Line> = run
+            .view
             .log
             .iter()
             .rev()
@@ -166,9 +172,9 @@ impl App {
         self.render_history_chart(
             frame,
             layout[4],
-            &run.speed_history,
-            run.total,
-            if run.phase == Some(Phase::Verify) {
+            &run.view.speed_history,
+            run.view.total,
+            if run.view.phase == Some(Phase::Verify) {
                 self.theme.gauge_verify()
             } else {
                 self.theme.gauge_write()

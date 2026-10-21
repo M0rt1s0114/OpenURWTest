@@ -147,16 +147,11 @@ fn test_multi_task() -> MultiTask {
         target_path: PathBuf::from("X:\\"),
         mode: RunMode::WriteOnly,
         control: TaskControl::new(CancelToken::new(), PauseToken::new()),
-        latest: None,
-        phase: None,
-        total: 0,
-        log: VecDeque::new(),
+        view: TaskViewState::new(DriveHealth::default()),
         status: TaskStatus::Running,
         summary: None,
-        speed_history: Vec::new(),
         suite: None,
         error: None,
-        health: DriveHealth::default(),
         cancel_requested: false,
     }
 }

@@ -192,7 +192,8 @@ impl App {
                     " {}  速度测试  elapsed {}  temp {}",
                     task.task_label(),
                     format_seconds(multi.started.elapsed().as_secs()),
-                    task.health
+                    task.view
+                        .health
                         .temperature_c
                         .map(|value| format!("{value} C"))
                         .unwrap_or_else(|| "unknown".to_string())

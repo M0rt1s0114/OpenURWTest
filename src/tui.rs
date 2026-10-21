@@ -435,6 +435,28 @@ impl TaskControl {
     }
 }
 
+struct TaskViewState {
+    latest: Option<ProgressInfo>,
+    phase: Option<Phase>,
+    total: u64,
+    log: VecDeque<String>,
+    speed_history: Vec<(u64, f64)>,
+    health: DriveHealth,
+}
+
+impl TaskViewState {
+    fn new(health: DriveHealth) -> Self {
+        Self {
+            latest: None,
+            phase: None,
+            total: 0,
+            log: VecDeque::new(),
+            speed_history: Vec::new(),
+            health,
+        }
+    }
+}
+
 struct RunState {
     rx: Receiver<TuiEvent>,
     target: String,
@@ -444,15 +466,10 @@ struct RunState {
     delete_after: bool,
     auto_export: bool,
     report_temperature: bool,
-    latest: Option<ProgressInfo>,
-    phase: Option<Phase>,
-    total: u64,
-    log: VecDeque<String>,
-    speed_history: Vec<(u64, f64)>,
+    view: TaskViewState,
     started: Instant,
     cancel_requested: bool,
     control: TaskControl,
-    health: DriveHealth,
 }
 
 struct ResultsState {
@@ -536,16 +553,11 @@ struct MultiTask {
     target_path: PathBuf,
     mode: RunMode,
     control: TaskControl,
-    latest: Option<ProgressInfo>,
-    phase: Option<Phase>,
-    total: u64,
-    log: VecDeque<String>,
+    view: TaskViewState,
     status: TaskStatus,
     summary: Option<Summary>,
-    speed_history: Vec<(u64, f64)>,
     suite: Option<SuiteView>,
     error: Option<String>,
-    health: DriveHealth,
     cancel_requested: bool,
 }
 

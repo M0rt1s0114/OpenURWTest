@@ -90,7 +90,7 @@ impl App {
             if let Some(mount) = run_mount {
                 let health = self.cached_health(&mount);
                 if let Some(run) = self.run.as_mut() {
-                    run.health = health;
+                    run.view.health = health;
                 }
             }
             let mounts: Vec<(usize, PathBuf)> = self
@@ -113,7 +113,7 @@ impl App {
             if let Some(multi) = self.multi.as_mut() {
                 for (index, health) in refreshed {
                     if let Some(task) = multi.tasks.get_mut(index) {
-                        task.health = health;
+                        task.view.health = health;
                     }
                 }
             }
@@ -125,29 +125,30 @@ impl App {
             while let Ok(event) = run.rx.try_recv() {
                 match event {
                     TuiEvent::PassStart { pass, passes } => {
-                        run.log.push_back(format!("pass {pass}/{passes}"));
+                        run.view.log.push_back(format!("pass {pass}/{passes}"));
                     }
                     TuiEvent::Info(message) | TuiEvent::Warn(message) => {
-                        run.log.push_back(message);
+                        run.view.log.push_back(message);
                     }
                     TuiEvent::Error(message) => {
-                        run.log.push_back(message);
+                        run.view.log.push_back(message);
                     }
                     TuiEvent::PhaseStart { phase } => {
-                        run.phase = Some(phase);
-                        run.log.push_back(format!("{} started", phase.label()));
+                        run.view.phase = Some(phase);
+                        run.view.log.push_back(format!("{} started", phase.label()));
                     }
                     TuiEvent::Progress(progress) => {
-                        run.latest = Some(progress);
-                        run.total = progress.total_bytes;
-                        run.speed_history
+                        run.view.latest = Some(progress);
+                        run.view.total = progress.total_bytes;
+                        run.view
+                            .speed_history
                             .push((progress.bytes, progress.current_mibps));
-                        if run.speed_history.len() > 240 {
-                            run.speed_history.remove(0);
+                        if run.view.speed_history.len() > 240 {
+                            run.view.speed_history.remove(0);
                         }
                     }
                     TuiEvent::PhaseDone { phase, stats } => {
-                        run.log.push_back(format!(
+                        run.view.log.push_back(format!(
                             "{}: {} in {:.1}s ({:.1} MiB/s)",
                             phase.label(),
                             format_bytes(stats.bytes),
@@ -172,8 +173,8 @@ impl App {
                     }
                 }
             }
-            while run.log.len() > 50 {
-                run.log.pop_front();
+            while run.view.log.len() > 50 {
+                run.view.log.pop_front();
             }
         }
         if let Some((summary, delete_after, auto_export, report_temperature, target)) = finished {
@@ -404,14 +405,9 @@ impl App {
             auto_export: settings.auto_export,
             report_temperature: settings.report_temperature,
             control: TaskControl::new(token.clone(), pause.clone()),
-            latest: None,
-            phase: None,
-            total: 0,
-            log: VecDeque::new(),
-            speed_history: Vec::new(),
+            view: TaskViewState::new(health),
             started: Instant::now(),
             cancel_requested: false,
-            health,
         });
         self.screen = Screen::Run;
     }
@@ -520,16 +516,11 @@ impl App {
                 target_path: target.clone(),
                 mode,
                 control: TaskControl::new(token, pause),
-                latest: None,
-                phase: None,
-                total: 0,
-                log: VecDeque::new(),
+                view: TaskViewState::new(health),
                 status: TaskStatus::Queued,
                 summary: None,
-                speed_history: Vec::new(),
                 suite: None,
                 error: None,
-                health,
                 cancel_requested: false,
             });
         }
@@ -559,30 +550,33 @@ impl App {
                 match event {
                     TuiEvent::PassStart { pass, passes } => {
                         task.status = TaskStatus::Running;
-                        task.log.push_back(format!("pass {pass}/{passes}"));
+                        task.view.log.push_back(format!("pass {pass}/{passes}"));
                     }
                     TuiEvent::Info(message)
                     | TuiEvent::Warn(message)
                     | TuiEvent::Error(message) => {
-                        task.log.push_back(message);
+                        task.view.log.push_back(message);
                     }
                     TuiEvent::PhaseStart { phase } => {
                         task.status = TaskStatus::Running;
-                        task.phase = Some(phase);
-                        task.log.push_back(format!("{} started", phase.label()));
+                        task.view.phase = Some(phase);
+                        task.view
+                            .log
+                            .push_back(format!("{} started", phase.label()));
                     }
                     TuiEvent::Progress(progress) => {
                         task.status = TaskStatus::Running;
-                        task.latest = Some(progress);
-                        task.total = progress.total_bytes;
-                        task.speed_history
+                        task.view.latest = Some(progress);
+                        task.view.total = progress.total_bytes;
+                        task.view
+                            .speed_history
                             .push((progress.bytes, progress.current_mibps));
-                        if task.speed_history.len() > 240 {
-                            task.speed_history.remove(0);
+                        if task.view.speed_history.len() > 240 {
+                            task.view.speed_history.remove(0);
                         }
                     }
                     TuiEvent::PhaseDone { phase, stats } => {
-                        task.log.push_back(format!(
+                        task.view.log.push_back(format!(
                             "{}: {} in {:.1}s",
                             phase.label(),
                             format_bytes(stats.bytes),
@@ -633,7 +627,7 @@ impl App {
                                     suite.bar_values[(index - 2) * 2 + 1] = None;
                                 }
                                 suite.error_offset = None;
-                                task.log.push_back(format!(
+                                task.view.log.push_back(format!(
                                     "开始 {}",
                                     PRESETS.get(index).map(|item| item.name).unwrap_or("-")
                                 ));
@@ -643,7 +637,7 @@ impl App {
                                 suite.phase = Some(phase);
                                 suite.done_bytes = 0;
                                 suite.mibps = 0.0;
-                                task.log.push_back(format!(
+                                task.view.log.push_back(format!(
                                     "{}：{}",
                                     PRESETS.get(index).map(|item| item.name).unwrap_or("-"),
                                     match phase {
@@ -704,7 +698,7 @@ impl App {
                                 kind,
                             } => {
                                 suite.error_offset = Some(offset);
-                                task.log.push_back(format!(
+                                task.view.log.push_back(format!(
                                     "{} {}：写入量 {} 处发现 {}",
                                     PRESETS.get(index).map(|item| item.name).unwrap_or("-"),
                                     match phase {
@@ -731,7 +725,7 @@ impl App {
                                     suite.bar_values[(index - 2) * 2 + 1] = Some(read_mean);
                                 }
                                 suite.results.push(result.clone());
-                                task.log.push_back(format!(
+                                task.view.log.push_back(format!(
                                     "{} 完成：写 {:.1} MiB/s，读 {:.1} MiB/s，校验错误 {}",
                                     PRESETS.get(index).map(|item| item.name).unwrap_or("-"),
                                     result.write.write_mibps,
@@ -755,7 +749,7 @@ impl App {
                         };
                         if let Some(error) = &result.error {
                             task.error = Some(error.clone());
-                            task.log.push_back(error.clone());
+                            task.view.log.push_back(error.clone());
                         }
                         if result.stopped {
                             self.error_flash_start = Some(Instant::now());
@@ -766,7 +760,9 @@ impl App {
                             task.error = Some(format!(
                                 "顺序项校验发现文件损坏（写入量 {offset} 处），速度测试已停止"
                             ));
-                            task.log.push_back(task.error.clone().unwrap_or_default());
+                            task.view
+                                .log
+                                .push_back(task.error.clone().unwrap_or_default());
                         }
                     }
                     TuiEvent::Failed(error) => {
@@ -774,8 +770,8 @@ impl App {
                         task.status = TaskStatus::Failed;
                     }
                 }
-                while task.log.len() > 30 {
-                    task.log.pop_front();
+                while task.view.log.len() > 30 {
+                    task.view.log.pop_front();
                 }
             }
             finished_all = multi.all_done();
@@ -1049,16 +1045,11 @@ impl App {
                 target_path: target.clone(),
                 mode: RunMode::WriteOnly,
                 control: TaskControl::new(token, pause),
-                latest: None,
-                phase: None,
-                total: 0,
-                log: VecDeque::new(),
+                view: TaskViewState::new(health),
                 status: TaskStatus::Running,
                 summary: None,
-                speed_history: Vec::new(),
                 suite: Some(SuiteView::default()),
                 error: None,
-                health,
                 cancel_requested: false,
             });
         }
@@ -1206,8 +1197,8 @@ impl App {
                             read_bytes: item.read.total_bytes,
                             data_errors: item.verify_errors,
                             read_errors: item.read_errors + item.write_errors,
-                            temperature_c: task.health.temperature_c,
-                            health: task.health.status.label().to_string(),
+                            temperature_c: task.view.health.temperature_c,
+                            health: task.view.health.status.label().to_string(),
                             read_mibps: item.read.read_mibps,
                             write_mibps: item.write.write_mibps,
                             read_iops: item.read.read_iops,
@@ -1241,8 +1232,8 @@ impl App {
                         read_bytes: summary.map(|value| value.read_bytes).unwrap_or(0),
                         data_errors: summary.map(|value| value.data_errors).unwrap_or(0),
                         read_errors: summary.map(|value| value.read_errors).unwrap_or(0),
-                        temperature_c: task.health.temperature_c,
-                        health: task.health.status.label().to_string(),
+                        temperature_c: task.view.health.temperature_c,
+                        health: task.view.health.status.label().to_string(),
                         read_mibps: 0.0,
                         write_mibps: 0.0,
                         read_iops: 0.0,
