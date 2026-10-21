@@ -1,9 +1,9 @@
 //! Cooperative cancellation for Ctrl-C / Ctrl-Break.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
-static CANCELLED: AtomicBool = AtomicBool::new(false);
+static CANCELLED: LazyLock<Arc<AtomicBool>> = LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 #[cfg(test)]
 thread_local! {
@@ -14,6 +14,11 @@ thread_local! {
 pub fn install() -> anyhow::Result<()> {
     ctrlc::set_handler(|| CANCELLED.store(true, Ordering::SeqCst))
         .map_err(|error| anyhow::anyhow!("failed to install Ctrl-C handler: {error}"))
+}
+
+/// Shared flag for consumers that poll cancellation with an `Arc<AtomicBool>`.
+pub fn flag() -> Arc<AtomicBool> {
+    Arc::clone(&CANCELLED)
 }
 
 /// Request cancellation from the UI or another thread.

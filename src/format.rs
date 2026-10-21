@@ -74,8 +74,10 @@ pub fn scan_test_files(directory: &Path) -> io::Result<Vec<TestFile>> {
 /// The last file may be shorter than 2 GiB; earlier files are expected to be
 /// full. A partial trailing block is ignored.
 pub fn total_blocks(files: &[TestFile]) -> Option<u64> {
+    let last_non_empty = files.iter().rposition(|file| file.size > 0)?;
+    let files = &files[..=last_non_empty];
     let last = files.last()?;
-    if last.size == 0 || last.size > MAX_FILE_SIZE {
+    if last.size > MAX_FILE_SIZE {
         return None;
     }
     if files[..files.len() - 1]
@@ -84,7 +86,8 @@ pub fn total_blocks(files: &[TestFile]) -> Option<u64> {
     {
         return None;
     }
-    Some(last.size / BLOCK_SIZE + (files.len() as u64 - 1) * BLOCKS_PER_FILE)
+    let blocks = last.size / BLOCK_SIZE + (files.len() as u64 - 1) * BLOCKS_PER_FILE;
+    (blocks > 0).then_some(blocks)
 }
 
 /// Path of the file that contains the given block index.
@@ -233,6 +236,23 @@ mod tests {
         assert_eq!(total_blocks(&files), Some(BLOCKS_PER_FILE + 4));
         assert_eq!(total_blocks(&[]), None);
         assert_eq!(total_blocks(&[TestFile { index: 1, size: 0 }]), None);
+        assert_eq!(
+            total_blocks(&[
+                TestFile {
+                    index: 1,
+                    size: MAX_FILE_SIZE,
+                },
+                TestFile { index: 2, size: 0 },
+            ]),
+            Some(BLOCKS_PER_FILE)
+        );
+        assert_eq!(
+            total_blocks(&[TestFile {
+                index: 1,
+                size: 500 * 1024,
+            }]),
+            None
+        );
     }
 
     #[test]

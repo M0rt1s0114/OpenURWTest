@@ -46,13 +46,14 @@ pub struct PhaseStats {
     pub seconds: f64,
     pub data_errors: u64,
     pub read_errors: u64,
+    pub write_errors: u64,
     pub interrupted: bool,
     pub device_lost: bool,
 }
 
 impl PhaseStats {
     pub fn failed(&self) -> bool {
-        self.data_errors > 0 || self.read_errors > 0
+        self.data_errors > 0 || self.read_errors > 0 || self.write_errors > 0
     }
 
     pub fn mib_per_sec(&self) -> f64 {
@@ -75,6 +76,7 @@ pub struct Summary {
     pub read_bytes: u64,
     pub data_errors: u64,
     pub read_errors: u64,
+    pub write_errors: u64,
     pub interrupted: bool,
     pub device_lost: bool,
     pub write_only: bool,
@@ -84,7 +86,7 @@ pub struct Summary {
 impl Summary {
     #[cfg(test)]
     pub fn success(&self) -> bool {
-        self.failed == 0 && self.error_pass.is_none()
+        self.failed == 0 && self.error_pass.is_none() && self.write_errors == 0
     }
 }
 
@@ -136,10 +138,15 @@ pub fn run(
                 run_start,
             )?;
             summary.wrote_bytes += stats.bytes;
+            summary.write_errors += stats.write_errors;
             summary.interrupted |= stats.interrupted;
             summary.device_lost |= stats.device_lost;
 
-            if stats.interrupted || stats.device_lost {
+            if stats.interrupted || stats.device_lost || stats.write_errors > 0 {
+                if stats.write_errors > 0 {
+                    summary.failed += 1;
+                    summary.error_pass = Some(pass);
+                }
                 reporter.info("Write stopped; test data kept on the volume.");
                 reporter.finished(&summary);
                 return Ok(summary);
@@ -317,6 +324,7 @@ fn write_pass(
     let mut file: Option<File> = None;
     let mut interrupted = false;
     let mut device_lost = false;
+    let mut write_errors = 0u64;
     let mut clock = PhaseProgress::new(pass, passes, Phase::Write, start_free);
 
     loop {
@@ -345,7 +353,14 @@ fn write_pass(
                 device_lost = true;
                 break;
             }
-            return Err(error).with_context(|| "failed to write test data");
+            write_errors += 1;
+            reporter.error(&ErrorInfo {
+                pass,
+                phase: Phase::Write,
+                block: blocks,
+                message: "write error",
+            });
+            break;
         }
         blocks += 1;
 
@@ -372,6 +387,7 @@ fn write_pass(
         seconds: phase_start.elapsed().as_secs_f64(),
         interrupted,
         device_lost,
+        write_errors,
         ..PhaseStats::default()
     };
     reporter.phase_finished(pass, Phase::Write, &stats);

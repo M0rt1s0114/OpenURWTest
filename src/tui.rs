@@ -432,6 +432,7 @@ enum Screen {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MouseAction {
     Select(usize),
+    Toggle(usize),
     Key(KeyCode),
     FocusSettings(SettingsField),
     FocusSpeed(usize),
@@ -806,6 +807,9 @@ impl App {
             && summary.error_pass.is_none()
             && summary.data_errors == 0
             && summary.read_errors == 0
+            && summary.write_errors == 0
+            && !summary.write_only
+            && summary.passed > 0
             && !summary.interrupted
             && !summary.device_lost;
         let mut message = String::new();
@@ -1287,8 +1291,10 @@ impl App {
 
     fn cancel_multi(&mut self, all: bool) {
         let mut needs_global = false;
+        let mut active_is_verify = false;
         if let Some(multi) = self.multi.as_mut() {
             let active = multi.active.min(multi.tasks.len().saturating_sub(1));
+            active_is_verify = multi.tasks[active].mode == RunMode::VerifyExisting;
             for (index, task) in multi.tasks.iter_mut().enumerate() {
                 if task.mode == RunMode::VerifyExisting {
                     needs_global = true;
@@ -1299,7 +1305,7 @@ impl App {
                 }
             }
         }
-        if all && needs_global {
+        if needs_global && (all || active_is_verify) {
             cancel::request();
         }
     }
@@ -1783,6 +1789,11 @@ impl App {
                 match action {
                     Some(MouseAction::Select(index)) => {
                         self.selected = index;
+                        self.message.clear();
+                    }
+                    Some(MouseAction::Toggle(index)) => {
+                        self.selected = index;
+                        self.toggle_check();
                         self.message.clear();
                     }
                     Some(MouseAction::Key(code)) => {
@@ -2269,10 +2280,7 @@ impl App {
                 Rect::new(row_x, y, columns[0].width.saturating_sub(2), 1),
                 MouseAction::Select(index),
             );
-            self.record_hotspot(
-                Rect::new(text_x, y, 3, 1),
-                MouseAction::Key(KeyCode::Char(' ')),
-            );
+            self.record_hotspot(Rect::new(text_x, y, 3, 1), MouseAction::Toggle(index));
         }
 
         let details = match self.selected_volume() {
@@ -3596,34 +3604,37 @@ impl App {
             .split(area);
 
         let summary = &results.summary;
+        let failed = summary.failed > 0
+            || summary.error_pass.is_some()
+            || summary.data_errors > 0
+            || summary.read_errors > 0
+            || summary.write_errors > 0;
         let incomplete = summary.interrupted || summary.device_lost;
-        let clean = summary.failed == 0
-            && summary.error_pass.is_none()
-            && summary.data_errors == 0
-            && summary.read_errors == 0;
-        let verdict = if incomplete {
-            "INCOMPLETE"
-        } else if clean {
-            "PASS"
-        } else {
+        let verified = !summary.write_only && summary.read_bytes > 0;
+        let verdict = if failed {
             "FAIL"
-        };
-        let verdict_style = if incomplete {
-            self.theme.warning()
-        } else if clean {
-            self.theme.success()
+        } else if incomplete {
+            "INCOMPLETE"
+        } else if !verified {
+            "UNVERIFIED"
         } else {
-            self.theme.danger()
+            "PASS"
+        };
+        let verdict_style = match verdict {
+            "PASS" => self.theme.success(),
+            "FAIL" => self.theme.danger(),
+            _ => self.theme.warning(),
         };
         let verdict_line = Line::from(vec![
             Span::styled(format!("{verdict}   "), verdict_style),
             Span::raw(format!(
-                "{} pass(es): {} passed, {} failed   data errors {}   read errors {}",
+                "{} pass(es): {} passed, {} failed   data errors {}   read errors {}   write errors {}",
                 summary.passes,
                 summary.passed,
                 summary.failed,
                 summary.data_errors,
-                summary.read_errors
+                summary.read_errors,
+                summary.write_errors
             )),
         ]);
         let stats_line = Line::styled(

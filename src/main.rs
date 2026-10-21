@@ -33,13 +33,17 @@ use crate::reporter::LineReporter;
 use crate::types::ProgressMode;
 
 fn main() {
-    if let Err(error) = real_main() {
-        eprintln!("Error: {error:#}");
-        process::exit(2);
-    }
+    let code = match real_main() {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("Error: {error:#}");
+            2
+        }
+    };
+    process::exit(code);
 }
 
-fn real_main() -> Result<()> {
+fn real_main() -> Result<i32> {
     let cli = Cli::parse();
     let console = Console::new(cli.color);
     let progress = if cli.no_progress {
@@ -88,8 +92,8 @@ fn real_main() -> Result<()> {
             };
             let existing = format::scan_test_files(&target)?;
             if args.no_verify && !existing.is_empty() {
-                console.info("Test data already exists on this volume; nothing to do.");
-                return Ok(());
+                console.warn("Test data already exists on this volume; nothing to do.");
+                return Ok(1);
             }
             if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() && !cli.no_tui {
                 let mode = if args.no_verify {
@@ -105,11 +109,12 @@ fn real_main() -> Result<()> {
                     cli.color,
                     cli.mouse,
                 )?;
-                return Ok(());
+                return Ok(0);
             }
             let mut reporter = LineReporter::new(&console, progress);
             let summary = engine::run_os(&options, &mut reporter)?;
             export_if_requested(&cli, &target, &summary, &console)?;
+            return Ok(summary_exit_code(&summary));
         }
         Some(Commands::Info(args)) => {
             let target = volume::normalize_target_path(&args.target);
@@ -120,7 +125,7 @@ fn real_main() -> Result<()> {
             if args.json {
                 println!(
                     "{{\"volume\":\"{}\",\"temperature_c\":{},\"health\":\"{}\",\"disk_number\":{}}}",
-                    volume.mount_point.display(),
+                    json_escape(&volume.mount_point.display().to_string()),
                     health
                         .temperature_c
                         .map(|value| value.to_string())
@@ -155,7 +160,7 @@ fn real_main() -> Result<()> {
             }
         }
         Some(Commands::Speed(args)) => {
-            speed::cli::run(args)?;
+            return speed::cli::run(args);
         }
         Some(Commands::Verify(args)) => {
             let target = volume::normalize_target_path(&args.target);
@@ -169,15 +174,48 @@ fn real_main() -> Result<()> {
                     cli.color,
                     cli.mouse,
                 )?;
-                return Ok(());
+                return Ok(0);
             }
             let mut reporter = LineReporter::new(&console, progress);
             let summary = engine::verify_existing(&target, &mut reporter)?;
             export_if_requested(&cli, &target, &summary, &console)?;
+            return Ok(summary_exit_code(&summary));
         }
     }
 
-    Ok(())
+    Ok(0)
+}
+
+fn summary_exit_code(summary: &Summary) -> i32 {
+    if summary.interrupted {
+        return 130;
+    }
+    if summary.failed > 0
+        || summary.error_pass.is_some()
+        || summary.data_errors > 0
+        || summary.read_errors > 0
+        || summary.write_errors > 0
+        || summary.device_lost
+    {
+        return 1;
+    }
+    0
+}
+
+fn json_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch < ' ' => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn resolve_target(target: &std::path::Path) -> Result<()> {
@@ -211,4 +249,37 @@ fn export_if_requested(
         directory.display()
     ));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_exit_code_distinguishes_failure_and_cancel() {
+        assert_eq!(summary_exit_code(&Summary::default()), 0);
+        let failed = Summary {
+            failed: 1,
+            ..Summary::default()
+        };
+        assert_eq!(summary_exit_code(&failed), 1);
+        let data_errors = Summary {
+            data_errors: 3,
+            ..Summary::default()
+        };
+        assert_eq!(summary_exit_code(&data_errors), 1);
+        let interrupted = Summary {
+            interrupted: true,
+            ..Summary::default()
+        };
+        assert_eq!(summary_exit_code(&interrupted), 130);
+    }
+
+    #[test]
+    fn json_escape_handles_windows_paths_and_controls() {
+        assert_eq!(json_escape("C:\\"), "C:\\\\");
+        assert_eq!(json_escape("a\"b"), "a\\\"b");
+        assert_eq!(json_escape("a\nb\tc"), "a\\nb\\tc");
+        assert_eq!(json_escape("\u{0001}"), "\\u0001");
+    }
 }

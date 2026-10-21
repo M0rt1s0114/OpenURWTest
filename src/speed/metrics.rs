@@ -110,7 +110,7 @@ fn percentile(histogram: &[u64; HISTOGRAM_BUCKETS], total: u64, percent: u64) ->
     for (index, count) in histogram.iter().enumerate() {
         seen += *count;
         if seen >= target {
-            return if index == 0 { 1 } else { 1u64 << (index - 1) };
+            return if index == 0 { 1 } else { 1u64 << index };
         }
     }
     1u64 << (HISTOGRAM_BUCKETS - 1)
@@ -142,5 +142,16 @@ mod tests {
         assert_eq!(snapshot.max_latency_ns, 4_000);
         assert!(snapshot.p50_latency_ns <= snapshot.p95_latency_ns);
         assert!(snapshot.p95_latency_ns <= snapshot.p99_latency_ns);
+    }
+
+    #[test]
+    fn latency_percentiles_use_the_bucket_floor() {
+        let mut counters = Counters::default();
+        for _ in 0..10 {
+            counters.record(true, 4096, 1_000);
+        }
+        let snapshot = counters.snapshot(Duration::from_secs(1));
+        assert_eq!(snapshot.p50_latency_ns, 512);
+        assert_eq!(snapshot.p99_latency_ns, 512);
     }
 }
