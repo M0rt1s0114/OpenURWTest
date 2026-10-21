@@ -616,6 +616,7 @@ struct App {
     run: Option<RunState>,
     results: Option<ResultsState>,
     export_rx: Option<mpsc::Receiver<String>>,
+    multi_export_rx: Option<mpsc::Receiver<String>>,
     cancel_pending: bool,
 }
 
@@ -652,6 +653,7 @@ impl App {
             run: None,
             results: None,
             export_rx: None,
+            multi_export_rx: None,
             cancel_pending: false,
         }
     }
@@ -836,6 +838,17 @@ impl App {
                     }
                 }
                 Err(mpsc::TryRecvError::Empty) => self.export_rx = Some(rx),
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
+        if let Some(rx) = self.multi_export_rx.take() {
+            match rx.try_recv() {
+                Ok(message) => {
+                    if let Some(multi) = self.multi.as_mut() {
+                        multi.export_message = message;
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => self.multi_export_rx = Some(rx),
                 Err(mpsc::TryRecvError::Disconnected) => {}
             }
         }
@@ -1622,16 +1635,48 @@ impl App {
         if !should {
             return;
         }
-        self.export_multi_report();
+        let Some((kind, rows)) = self.multi_report_rows() else {
+            return;
+        };
+        let directory = export_directory().join("multi");
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let message = match export::export_multi(&directory, kind, &rows) {
+                Ok(files) => format!(
+                    "exported {} file(s) to {}",
+                    files.len(),
+                    directory.display()
+                ),
+                Err(error) => format!("export failed: {error}"),
+            };
+            let _ = tx.send(message);
+        });
+        self.multi_export_rx = Some(rx);
         if let Some(multi) = self.multi.as_mut() {
             multi.exported = true;
+            multi.export_message = "export started in background".to_string();
+        }
+    }
+    fn export_multi_report(&mut self) {
+        let Some((kind, rows)) = self.multi_report_rows() else {
+            return;
+        };
+        let directory = export_directory().join("multi");
+        let message = match export::export_multi(&directory, kind, &rows) {
+            Ok(files) => format!(
+                "exported {} file(s) to {}",
+                files.len(),
+                directory.display()
+            ),
+            Err(error) => format!("export failed: {error}"),
+        };
+        if let Some(multi) = self.multi.as_mut() {
+            multi.export_message = message;
         }
     }
 
-    fn export_multi_report(&mut self) {
-        let Some(multi) = self.multi.as_mut() else {
-            return;
-        };
+    fn multi_report_rows(&self) -> Option<(&'static str, Vec<MultiReportRow>)> {
+        let multi = self.multi.as_ref()?;
         let kind = if multi.kind == TestKind::Speed {
             "speed"
         } else {
@@ -1705,17 +1750,8 @@ impl App {
                 })
                 .collect()
         };
-        let directory = export_directory().join("multi");
-        multi.export_message = match export::export_multi(&directory, kind, &rows) {
-            Ok(files) => format!(
-                "exported {} file(s) to {}",
-                files.len(),
-                directory.display()
-            ),
-            Err(error) => format!("export failed: {error}"),
-        };
+        Some((kind, rows))
     }
-
     fn render_speed_settings(&self, frame: &mut Frame) {
         let area = centered_rect(frame.area(), 70, 64);
         frame.render_widget(Clear, area);
