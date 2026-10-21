@@ -77,7 +77,7 @@ fn results_screen_combines_line_and_bar_charts() {
     let app = app_with_finished_speed_suite();
     let text = normalized(&render_text(&app));
     assert!(text.contains("CDM速度测试结果"));
-    assert!(text.contains("speedMiB/s"));
+    assert!(text.contains("速度MiB/s"));
     assert!(text.contains("4Ktrimmed-meanMiB/s"));
     assert!(text.contains("Q32W"));
 }
@@ -95,7 +95,7 @@ fn random_run_uses_a_line_chart() {
     suite.read_curves[2] = vec![(0, 100.0), (4096, 123.0)];
     app.screen = Screen::MultiRun;
     let text = normalized(&render_text(&app));
-    assert!(text.contains("speedMiB/s"));
+    assert!(text.contains("速度MiB/s"));
     assert!(!text.contains("currentthroughput"));
 }
 

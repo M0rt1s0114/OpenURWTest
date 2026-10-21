@@ -380,7 +380,7 @@ impl App {
             layout[4],
             series,
             self.speed.values.file_size,
-            &format!("speed MiB/s · {}", preset.name),
+            &format!("速度 MiB/s · {}", preset.name),
         );
 
         let speed_footer = if multi.tasks.len() > 1 {

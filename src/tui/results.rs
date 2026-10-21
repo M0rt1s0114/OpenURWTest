@@ -320,7 +320,7 @@ impl App {
                     graph[0],
                     series,
                     self.speed.values.file_size,
-                    &format!("speed MiB/s · {}", task.label),
+                    &format!("速度 MiB/s · {}", task.label),
                 );
                 let labels = ["Q32 W", "Q32 R", "Q1 W", "Q1 R"];
                 let bars: Vec<(&str, f64)> = labels
@@ -747,10 +747,10 @@ impl App {
             .block(
                 Block::bordered()
                     .title(format!(
-                        " Speed: {} (MiB/s) ",
+                        " 速度: {} (MiB/s) ",
                         match results.axis {
-                            Axis::Position => "write position",
-                            Axis::Time => "time",
+                            Axis::Position => "写入位置",
+                            Axis::Time => "时间",
                         }
                     ))
                     .border_style(self.theme.border()),
