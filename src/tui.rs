@@ -423,6 +423,18 @@ impl SettingsState {
     }
 }
 
+#[derive(Debug, Clone)]
+struct TaskControl {
+    cancel: CancelToken,
+    pause: PauseToken,
+}
+
+impl TaskControl {
+    fn new(cancel: CancelToken, pause: PauseToken) -> Self {
+        Self { cancel, pause }
+    }
+}
+
 struct RunState {
     rx: Receiver<TuiEvent>,
     target: String,
@@ -439,8 +451,7 @@ struct RunState {
     speed_history: Vec<(u64, f64)>,
     started: Instant,
     cancel_requested: bool,
-    pause: PauseToken,
-    token: Option<CancelToken>,
+    control: TaskControl,
     health: DriveHealth,
 }
 
@@ -524,8 +535,7 @@ struct MultiTask {
     label: String,
     target_path: PathBuf,
     mode: RunMode,
-    token: CancelToken,
-    pause: PauseToken,
+    control: TaskControl,
     latest: Option<ProgressInfo>,
     phase: Option<Phase>,
     total: u64,
@@ -785,7 +795,7 @@ impl TaskView for RunState {
     }
 
     fn task_paused(&self) -> bool {
-        self.pause.is_paused()
+        self.control.pause.is_paused()
     }
 
     fn task_status(&self) -> TaskStatus {
@@ -799,7 +809,7 @@ impl TaskView for MultiTask {
     }
 
     fn task_paused(&self) -> bool {
-        self.pause.is_paused()
+        self.control.pause.is_paused()
     }
 
     fn task_status(&self) -> TaskStatus {

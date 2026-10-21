@@ -403,7 +403,7 @@ impl App {
             delete_after: settings.delete_after,
             auto_export: settings.auto_export,
             report_temperature: settings.report_temperature,
-            pause,
+            control: TaskControl::new(token.clone(), pause.clone()),
             latest: None,
             phase: None,
             total: 0,
@@ -411,7 +411,6 @@ impl App {
             speed_history: Vec::new(),
             started: Instant::now(),
             cancel_requested: false,
-            token: Some(token),
             health,
         });
         self.screen = Screen::Run;
@@ -520,8 +519,7 @@ impl App {
                 label: volume.display_name(),
                 target_path: target.clone(),
                 mode,
-                token,
-                pause,
+                control: TaskControl::new(token, pause),
                 latest: None,
                 phase: None,
                 total: 0,
@@ -814,7 +812,7 @@ impl App {
                 }
                 if all || index == active {
                     task.cancel_requested = true;
-                    task.token.cancel();
+                    task.control.cancel.cancel();
                 }
             }
         }
@@ -868,16 +866,19 @@ impl App {
             KeyCode::Char('p') => {
                 let active = multi.active.min(multi.tasks.len().saturating_sub(1));
                 if let Some(task) = multi.tasks.get_mut(active) {
-                    task.pause.toggle();
+                    task.control.pause.toggle();
                 }
             }
             KeyCode::Char('P') => {
-                let pause = !multi.tasks.iter().all(|task| task.pause.is_paused());
+                let pause = !multi
+                    .tasks
+                    .iter()
+                    .all(|task| task.control.pause.is_paused());
                 for task in &mut multi.tasks {
                     if pause {
-                        task.pause.pause();
+                        task.control.pause.pause();
                     } else {
-                        task.pause.resume();
+                        task.control.pause.resume();
                     }
                 }
             }
@@ -1047,8 +1048,7 @@ impl App {
                 label: volume.display_name(),
                 target_path: target.clone(),
                 mode: RunMode::WriteOnly,
-                token,
-                pause,
+                control: TaskControl::new(token, pause),
                 latest: None,
                 phase: None,
                 total: 0,

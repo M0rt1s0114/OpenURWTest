@@ -175,7 +175,7 @@ impl App {
             },
         );
 
-        let footer = if run.pause.is_paused() {
+        let footer = if run.control.pause.is_paused() {
             format!(
                 "已暂停 - 按 p 继续   已用 {}",
                 format_seconds(run.started.elapsed().as_secs())
