@@ -29,6 +29,7 @@ pub struct DriveHealth {
     pub critical_c: Option<i16>,
     pub status: HealthStatus,
     pub disk_number: Option<u32>,
+    pub smart_checked: bool,
 }
 
 pub fn read_health(mount: &Path) -> DriveHealth {
@@ -47,7 +48,9 @@ mod imp {
     const FILE_SHARE_WRITE: u32 = 0x0000_0002;
     const OPEN_EXISTING: u32 = 3;
     const GENERIC_READ: u32 = 0x8000_0000;
+    const GENERIC_WRITE: u32 = 0x4000_0000;
     const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002D_1400;
+    const SMART_RCV_DRIVE_DATA: u32 = 0x0007_C088;
     const IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: u32 = 0x0056_0000;
     const STORAGE_DEVICE_TEMPERATURE_PROPERTY: u32 = 52;
 
@@ -94,12 +97,24 @@ mod imp {
         unsafe {
             CloseHandle(handle);
         }
-        if temperature.is_none()
-            && let Some(disk_number) = health.disk_number
-            && let Some(physical) = open(&format!("\\\\.\\PhysicalDrive{disk_number}"))
+        if let Some(disk_number) = health.disk_number
+            && let Some(physical) = open_rw(&format!("\\\\.\\PhysicalDrive{disk_number}"))
         {
-            temperature = query_temperature(physical, STORAGE_DEVICE_TEMPERATURE_PROPERTY)
-                .or_else(|| query_temperature(physical, 51));
+            if temperature.is_none() {
+                temperature = query_temperature(physical, STORAGE_DEVICE_TEMPERATURE_PROPERTY)
+                    .or_else(|| query_temperature(physical, 51));
+            }
+            if let Some(smart) = query_smart(physical) {
+                health.smart_checked = true;
+                if health.temperature_c.is_none()
+                    && let Some(value) = smart.temperature_c
+                {
+                    health.temperature_c = Some(value);
+                }
+                if smart.warning {
+                    health.status = HealthStatus::Warning;
+                }
+            }
             unsafe {
                 CloseHandle(physical);
             }
@@ -108,7 +123,9 @@ mod imp {
             health.temperature_c = Some(value);
             health.warning_c = warning;
             health.critical_c = critical;
-            health.status = classify(value, warning, critical);
+            if health.status != HealthStatus::Warning {
+                health.status = classify(value, warning, critical);
+            }
         }
         health
     }
@@ -177,6 +194,99 @@ mod imp {
         }
         buffer.truncate(returned as usize);
         Some(buffer)
+    }
+
+    #[repr(C)]
+    struct SendCmdIn {
+        c_buffer_size: u32,
+        ir_drive_regs: [u8; 8],
+        drive_number: u8,
+        reserved: [u8; 3],
+        reserved2: [u32; 4],
+    }
+
+    struct SmartInfo {
+        temperature_c: Option<i32>,
+        warning: bool,
+    }
+
+    fn open_rw(device: &str) -> Option<*mut c_void> {
+        if let Some(handle) = open_with_access(device, GENERIC_READ | GENERIC_WRITE) {
+            return Some(handle);
+        }
+        open(device)
+    }
+
+    fn open_with_access(device: &str, access: u32) -> Option<*mut c_void> {
+        let wide: Vec<u16> = OsStr::new(device)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let handle = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                access,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        (!handle.is_null() && handle as isize != -1).then_some(handle)
+    }
+
+    fn query_smart(handle: *mut c_void) -> Option<SmartInfo> {
+        let input = SendCmdIn {
+            c_buffer_size: 512,
+            ir_drive_regs: [0xD0, 1, 1, 0x4F, 0xC2, 0xA0, 0xB0, 0],
+            drive_number: 0,
+            reserved: [0; 3],
+            reserved2: [0; 4],
+        };
+        let mut output = vec![0u8; 16 + 512];
+        let mut returned = 0u32;
+        let ok = unsafe {
+            DeviceIoControl(
+                handle,
+                SMART_RCV_DRIVE_DATA,
+                &input as *const SendCmdIn as *const c_void,
+                std::mem::size_of::<SendCmdIn>() as u32,
+                output.as_mut_ptr() as *mut c_void,
+                output.len() as u32,
+                &mut returned,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 || returned < 16 + 512 {
+            return None;
+        }
+        let data = &output[12..12 + 512];
+        let mut temperature_c = None;
+        let mut warning = false;
+        for index in 0..30 {
+            let offset = 2 + index * 12;
+            if offset + 12 > data.len() {
+                break;
+            }
+            let id = data[offset];
+            let raw = &data[offset + 6..offset + 12];
+            let raw_low = u16::from_le_bytes([raw[0], raw[1]]);
+            match id {
+                5 | 197 | 198 | 199 if raw_low > 0 => warning = true,
+                190 | 194 => {
+                    let value = raw[0] as i32;
+                    if value > 0 && value < 120 {
+                        temperature_c = Some(value);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Some(SmartInfo {
+            temperature_c,
+            warning,
+        })
     }
 
     fn query_temperature(

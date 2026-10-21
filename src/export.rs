@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 
 use crate::analysis::{Analysis, AnalysisParams, SlowKind, SpeedSample, ThresholdMode};
 use crate::engine::Summary;
+use crate::json::escape;
 use crate::trace::Phase;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,7 +129,7 @@ fn write_report(path: &Path, input: &ExportInput<'_>) -> Result<()> {
     push_pair(
         &mut json,
         "target",
-        &format!(r#""{}""#, json_escape(&input.target.display().to_string())),
+        &format!(r#""{}""#, escape(&input.target.display().to_string())),
     );
     push_pair(&mut json, "passes", &summary.passes.to_string());
     push_pair(&mut json, "passed", &summary.passed.to_string());
@@ -203,21 +204,6 @@ fn push_pair(json: &mut String, key: &str, value: &str) {
     json.push_str(r#"": "#);
     json.push_str(value);
     json.push_str(",\n");
-}
-
-fn json_escape(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    for character in value.chars() {
-        match character {
-            '"' => output.push_str(r#"\""#),
-            '\\' => output.push_str(r#"\\"#),
-            '\n' => output.push_str(r#"\n"#),
-            '\r' => output.push_str(r#"\r"#),
-            '\t' => output.push_str(r#"\t"#),
-            other => output.push(other),
-        }
-    }
-    output
 }
 
 fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
@@ -411,7 +397,7 @@ pub fn export_multi(directory: &Path, kind: &str, rows: &[MultiReportRow]) -> Re
     let path = directory.join("multi_report.json");
     {
         let mut json = String::from("{\n");
-        json.push_str(&format!("  \"kind\": \"{}\",\n", json_escape(kind)));
+        json.push_str(&format!("  \"kind\": \"{}\",\n", escape(kind)));
         json.push_str("  \"rows\": [\n");
         for (index, row) in rows.iter().enumerate() {
             if index > 0 {
@@ -420,9 +406,9 @@ pub fn export_multi(directory: &Path, kind: &str, rows: &[MultiReportRow]) -> Re
             json.push_str("    {");
             json.push_str(&format!(
                 "\"target\": \"{}\", \"mode\": \"{}\", \"status\": \"{}\", ",
-                json_escape(&row.target),
-                json_escape(&row.mode),
-                json_escape(&row.status)
+                escape(&row.target),
+                escape(&row.mode),
+                escape(&row.status)
             ));
             json.push_str(&format!(
                 "\"passes\": {}, \"passed\": {}, \"failed\": {}, ",
@@ -441,7 +427,7 @@ pub fn export_multi(directory: &Path, kind: &str, rows: &[MultiReportRow]) -> Re
                 row.temperature_c
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string()),
-                json_escape(&row.health)
+                escape(&row.health)
             ));
             json.push_str(&format!(
                 "\"read_mibps\": {:.3}, \"write_mibps\": {:.3}, ",

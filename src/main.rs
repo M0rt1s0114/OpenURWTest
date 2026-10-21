@@ -8,6 +8,7 @@ mod format;
 mod health;
 mod interactive;
 mod io;
+mod json;
 mod reporter;
 mod speed;
 mod terminal;
@@ -82,11 +83,19 @@ fn real_main() -> Result<i32> {
         Some(Commands::Run(args)) => {
             let target = volume::normalize_target_path(&args.target);
             resolve_target(&target)?;
+            let interactive_tui =
+                std::io::stdout().is_terminal() && std::io::stdin().is_terminal() && !cli.no_tui;
+            if !interactive_tui && target.join("Windows").is_dir() && !args.allow_system {
+                anyhow::bail!(
+                    "target contains a Windows directory; pass --allow-system to confirm"
+                );
+            }
             let options = RunOptions {
                 target: &target,
                 passes: args.passes.max(1),
                 verify: !args.no_verify,
                 continue_on_error: args.continue_on_error,
+                reuse_existing: false,
                 cancel: None,
             };
             let existing = format::scan_test_files(&target)?;
@@ -94,7 +103,7 @@ fn real_main() -> Result<i32> {
                 console.warn("Test data already exists on this volume; nothing to do.");
                 return Ok(1);
             }
-            if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() && !cli.no_tui {
+            if interactive_tui {
                 let mode = if args.no_verify {
                     tui::RunMode::WriteOnly
                 } else {
@@ -123,13 +132,14 @@ fn real_main() -> Result<i32> {
             let health = health::read_health(&volume.mount_point);
             if args.json {
                 println!(
-                    "{{\"volume\":\"{}\",\"temperature_c\":{},\"health\":\"{}\",\"disk_number\":{}}}",
-                    json_escape(&volume.mount_point.display().to_string()),
+                    "{{\"volume\":\"{}\",\"temperature_c\":{},\"thermal_status\":\"{}\",\"smart_checked\":{},\"disk_number\":{}}}",
+                    json::escape(&volume.mount_point.display().to_string()),
                     health
                         .temperature_c
                         .map(|value| value.to_string())
                         .unwrap_or_else(|| "null".to_string()),
                     health.status.label(),
+                    health.smart_checked,
                     health
                         .disk_number
                         .map(|value| value.to_string())
@@ -148,7 +158,15 @@ fn real_main() -> Result<i32> {
                         .map(|value| format!("{value} C"))
                         .unwrap_or_else(|| "unknown".to_string())
                 );
-                println!("Health:      {}", health.status.label());
+                println!("Thermal:     {}", health.status.label());
+                println!(
+                    "SMART:       {}",
+                    if health.smart_checked {
+                        "checked"
+                    } else {
+                        "not available"
+                    }
+                );
                 println!(
                     "Disk number: {}",
                     health
@@ -199,22 +217,6 @@ fn summary_exit_code(summary: &Summary) -> i32 {
         return 1;
     }
     0
-}
-
-fn json_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            ch if ch < ' ' => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
-            ch => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 fn resolve_target(target: &std::path::Path) -> Result<()> {
@@ -276,9 +278,9 @@ mod tests {
 
     #[test]
     fn json_escape_handles_windows_paths_and_controls() {
-        assert_eq!(json_escape("C:\\"), "C:\\\\");
-        assert_eq!(json_escape("a\"b"), "a\\\"b");
-        assert_eq!(json_escape("a\nb\tc"), "a\\nb\\tc");
-        assert_eq!(json_escape("\u{0001}"), "\\u0001");
+        assert_eq!(json::escape("C:\\"), "C:\\\\");
+        assert_eq!(json::escape("a\"b"), "a\\\"b");
+        assert_eq!(json::escape("a\nb\tc"), "a\\nb\\tc");
+        assert_eq!(json::escape("\u{0001}"), "\\u0001");
     }
 }

@@ -32,6 +32,7 @@ pub struct RunOptions<'a> {
     pub passes: u32,
     pub verify: bool,
     pub continue_on_error: bool,
+    pub reuse_existing: bool,
     pub cancel: Option<CancelToken>,
 }
 
@@ -126,7 +127,13 @@ pub fn run(
         reporter.pass_started(pass, passes);
 
         let existing = format::scan_test_files(options.target)?;
-        if existing.is_empty() {
+        if !existing.is_empty() && options.reuse_existing {
+            reporter.info("Existing test data found; verifying it directly.");
+        } else {
+            if !existing.is_empty() {
+                reporter.info("Existing test data found; removing it before a fresh write.");
+                format::delete_test_files(options.target)?;
+            }
             let stats = write_pass(
                 options.target,
                 pass,
@@ -157,8 +164,6 @@ pub fn run(
                 reporter.finished(&summary);
                 return Ok(summary);
             }
-        } else {
-            reporter.info("Existing test data found; verifying it directly.");
         }
 
         let stats = verify_pass(
@@ -550,6 +555,7 @@ mod tests {
             passes,
             verify,
             continue_on_error,
+            reuse_existing: true,
             cancel: None,
         }
     }

@@ -1,11 +1,13 @@
 //! CLI entry point for the CDM-style speed suite.
 
 use std::thread;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 
 use crate::cli::SpeedArgs;
-use crate::speed::suite::{PRESETS, SpeedPreset, SuiteOptions, SuiteResult, run_suite};
+use crate::json::escape;
+use crate::speed::suite::{PRESETS, SpeedPreset, SuiteEvent, SuiteOptions, SuiteResult, run_suite};
 
 struct TargetResult {
     target: String,
@@ -30,6 +32,16 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
         if !target.is_dir() {
             bail!("target is not a directory: {}", target.display());
         }
+        let free = crate::volume::free_space(target)?;
+        let required = file_size.saturating_add(64 * 1024 * 1024);
+        if free < required {
+            bail!(
+                "not enough free space on {}: {} available, {} required",
+                target.display(),
+                free,
+                required
+            );
+        }
         let canonical = std::fs::canonicalize(target)
             .with_context(|| format!("failed to resolve {}", target.display()))?;
         if !seen.insert(canonical) {
@@ -40,14 +52,52 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
         let cancel = cancel.clone();
         let seed = args.seed.unwrap_or(0x5EED_1234_ABCD_0001);
         let ignore_errors = args.ignore_errors;
+        let quiet = args.json;
+        let label = target.display().to_string();
         handles.push(thread::spawn(move || {
             let options = SuiteOptions {
                 file_size,
                 ignore_sequential_errors: ignore_errors,
                 seed,
             };
-            let result = run_suite(&target, &presets, options, cancel, &mut |_| {})
-                .map_err(|error| format!("{error:#}"));
+            let mut last_bucket = 0u64;
+            let mut last_report = Instant::now();
+            let result = run_suite(&target, &presets, options, cancel, &mut |event| {
+                if quiet {
+                    return;
+                }
+                match event {
+                    SuiteEvent::PresetStarted { index } => {
+                        eprintln!(
+                            "[{label}] {}",
+                            PRESETS.get(index).map(|preset| preset.name).unwrap_or("-")
+                        );
+                        last_bucket = 0;
+                    }
+                    SuiteEvent::PhaseStarted { index, phase } => {
+                        eprintln!(
+                            "[{label}] {} {}",
+                            PRESETS.get(index).map(|preset| preset.name).unwrap_or("-"),
+                            phase.label()
+                        );
+                    }
+                    SuiteEvent::Progress {
+                        done_bytes,
+                        total_bytes,
+                        mibps,
+                        ..
+                    } if total_bytes > 0 => {
+                        let bucket = done_bytes.saturating_mul(4) / total_bytes;
+                        if bucket > last_bucket && last_report.elapsed().as_millis() >= 200 {
+                            last_bucket = bucket;
+                            last_report = Instant::now();
+                            eprintln!("[{label}] {}%  {:.1} MiB/s", bucket * 25, mibps);
+                        }
+                    }
+                    _ => {}
+                }
+            })
+            .map_err(|error| format!("{error:#}"));
             let _ = std::fs::remove_file(target.join("BENCH0001.DAT"));
             TargetResult {
                 target: target.display().to_string(),
@@ -82,7 +132,10 @@ fn suite_exit_code(results: &[TargetResult]) -> i32 {
             Err(_) => code = code.max(1),
             Ok(result) if result.cancelled => code = 130,
             Ok(result) => {
-                if result.stopped || result.presets.iter().any(|preset| preset.failed()) {
+                if result.error.is_some()
+                    || result.stopped
+                    || result.presets.iter().any(|preset| preset.failed())
+                {
                     code = code.max(1);
                 }
             }
@@ -156,6 +209,9 @@ fn print_text_target(target: &TargetResult) {
                     );
                 }
             }
+            if let Some(error) = &result.error {
+                println!("error:    {error}");
+            }
             if result.stopped {
                 println!(
                     "stopped:  verification error at {} bytes (preset {})",
@@ -185,7 +241,7 @@ fn json_results(results: &[TargetResult]) -> String {
 }
 
 fn json_target(target: &TargetResult) -> String {
-    let mut output = format!("\"target\":\"{}\"", json_escape(&target.target));
+    let mut output = format!("\"target\":\"{}\"", escape(&target.target));
     match &target.result {
         Ok(result) => {
             output.push_str(&format!(
@@ -197,6 +253,9 @@ fn json_target(target: &TargetResult) -> String {
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
             ));
+            if let Some(error) = &result.error {
+                output.push_str(&format!(",\"error\":\"{}\"", escape(error)));
+            }
             let presets: Vec<String> = result
                 .presets
                 .iter()
@@ -221,26 +280,10 @@ fn json_target(target: &TargetResult) -> String {
             output.push_str(&format!(",\"presets\":[{}]", presets.join(",")));
         }
         Err(error) => {
-            output.push_str(&format!(",\"error\":\"{}\"", json_escape(error)));
+            output.push_str(&format!(",\"error\":\"{}\"", escape(error)));
         }
     }
     format!("{{{output}}}")
-}
-
-fn json_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            ch if ch < ' ' => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
-            ch => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 pub fn parse_size(value: &str) -> Result<u64> {
