@@ -76,6 +76,7 @@ pub fn run_target(
         anyhow::bail!("the TUI requires a terminal");
     }
     let mut terminal = ratatui::init();
+    mouse::install_panic_hook();
     let _ = crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::SetTitle(format!("{APP_NAME} v{VERSION}"))
@@ -142,6 +143,7 @@ pub fn run_home(color: ColorMode, mouse: MouseMode) -> Result<()> {
         anyhow::bail!("the TUI requires a terminal");
     }
     let mut terminal = ratatui::init();
+    mouse::install_panic_hook();
     let _ = crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::SetTitle(format!("{APP_NAME} v{VERSION}"))
@@ -627,7 +629,11 @@ impl App {
                 values: SpeedSettings::default(),
                 focus: 0,
             },
-            ascii: std::env::var_os("URWTEST_ASCII").is_some(),
+            ascii: std::env::var_os("URWTEST_ASCII").is_some()
+                || (cfg!(not(test))
+                    && cfg!(windows)
+                    && std::env::var_os("WT_SESSION").is_none()
+                    && std::env::var_os("TERM_PROGRAM").is_none()),
             system_confirm_input: String::new(),
             hotspots: RefCell::new(Vec::new()),
             mouse_hover: None,
@@ -1294,11 +1300,15 @@ impl App {
                         }
                         task.status = if result.cancelled || task.cancel_requested {
                             TaskStatus::Cancelled
-                        } else if result.stopped {
+                        } else if result.stopped || result.error.is_some() {
                             TaskStatus::Failed
                         } else {
                             TaskStatus::Done
                         };
+                        if let Some(error) = &result.error {
+                            task.error = Some(error.clone());
+                            task.log.push_back(error.clone());
+                        }
                         if result.stopped {
                             self.error_flash_start = Some(Instant::now());
                             let offset = result
@@ -1497,6 +1507,20 @@ impl App {
         if presets.is_empty() {
             self.message = "请至少选择一个测试项目".to_string();
             return;
+        }
+        let required = self.speed.values.file_size.saturating_add(64 * 1024 * 1024);
+        for volume in &targets {
+            if let Ok(free) = volume::free_space(&volume.mount_point)
+                && free < required
+            {
+                self.message = format!(
+                    "{} 可用空间不足：{} / {}",
+                    volume.mount_point.display(),
+                    format_bytes(free),
+                    format_bytes(required)
+                );
+                return;
+            }
         }
         cancel::reset();
         let settings = self.speed.values;

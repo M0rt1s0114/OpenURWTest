@@ -31,6 +31,16 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
         if !target.is_dir() {
             bail!("target is not a directory: {}", target.display());
         }
+        let free = crate::volume::free_space(target)?;
+        let required = file_size.saturating_add(64 * 1024 * 1024);
+        if free < required {
+            bail!(
+                "not enough free space on {}: {} available, {} required",
+                target.display(),
+                free,
+                required
+            );
+        }
         let canonical = std::fs::canonicalize(target)
             .with_context(|| format!("failed to resolve {}", target.display()))?;
         if !seen.insert(canonical) {
@@ -121,7 +131,10 @@ fn suite_exit_code(results: &[TargetResult]) -> i32 {
             Err(_) => code = code.max(1),
             Ok(result) if result.cancelled => code = 130,
             Ok(result) => {
-                if result.stopped || result.presets.iter().any(|preset| preset.failed()) {
+                if result.error.is_some()
+                    || result.stopped
+                    || result.presets.iter().any(|preset| preset.failed())
+                {
                     code = code.max(1);
                 }
             }
@@ -195,6 +208,9 @@ fn print_text_target(target: &TargetResult) {
                     );
                 }
             }
+            if let Some(error) = &result.error {
+                println!("error:    {error}");
+            }
             if result.stopped {
                 println!(
                     "stopped:  verification error at {} bytes (preset {})",
@@ -236,6 +252,9 @@ fn json_target(target: &TargetResult) -> String {
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
             ));
+            if let Some(error) = &result.error {
+                output.push_str(&format!(",\"error\":\"{}\"", json_escape(error)));
+            }
             let presets: Vec<String> = result
                 .presets
                 .iter()

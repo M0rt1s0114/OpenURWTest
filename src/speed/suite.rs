@@ -105,6 +105,7 @@ pub struct SuiteResult {
     pub cancelled: bool,
     pub stopped_at: Option<u64>,
     pub stopped_preset: Option<usize>,
+    pub error: Option<String>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -173,10 +174,14 @@ pub fn run_suite(
             break;
         }
         observer(SuiteEvent::PresetStarted { index });
-        prepare_file(&path, options.file_size)
-            .with_context(|| format!("failed to prepare benchmark file {}", path.display()))?;
+        if let Err(error) = prepare_file(&path, options.file_size)
+            .with_context(|| format!("failed to prepare benchmark file {}", path.display()))
+        {
+            result.error = Some(format!("{error:#}"));
+            break;
+        }
 
-        let write = run_phase(
+        let write = match run_phase(
             &path,
             preset,
             index,
@@ -186,7 +191,13 @@ pub fn run_suite(
             &cancel,
             options.ignore_sequential_errors,
             observer,
-        )?;
+        ) {
+            Ok(write) => write,
+            Err(error) => {
+                result.error = Some(format!("{error:#}"));
+                break;
+            }
+        };
         let mut item = PresetResult {
             preset_index: index,
             write: write.metrics,
@@ -208,7 +219,7 @@ pub fn run_suite(
             break;
         }
 
-        let read = run_phase(
+        let read = match run_phase(
             &path,
             preset,
             index,
@@ -218,7 +229,13 @@ pub fn run_suite(
             &cancel,
             options.ignore_sequential_errors,
             observer,
-        )?;
+        ) {
+            Ok(read) => read,
+            Err(error) => {
+                result.error = Some(format!("{error:#}"));
+                break;
+            }
+        };
         item.read = read.metrics;
         item.read_errors = read.read_errors;
         item.verify_errors = read.verify_errors;

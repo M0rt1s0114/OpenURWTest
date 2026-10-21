@@ -6,6 +6,14 @@ use ratatui::layout::Rect;
 
 use super::SettingsField;
 
+pub(super) fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
+        previous(info);
+    }));
+}
+
 pub(super) struct MouseGuard {
     pub(super) enabled: bool,
 }
