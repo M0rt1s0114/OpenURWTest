@@ -147,6 +147,7 @@ fn test_multi_task() -> MultiTask {
         target_path: PathBuf::from("X:\\"),
         mode: RunMode::WriteOnly,
         token: CancelToken::new(),
+        pause: PauseToken::new(),
         latest: None,
         phase: None,
         total: 0,

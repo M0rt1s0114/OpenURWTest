@@ -483,9 +483,11 @@ impl App {
         let mut tasks = Vec::with_capacity(targets.len());
         for (index, volume) in targets.iter().enumerate() {
             let token = CancelToken::new();
+            let pause = PauseToken::new();
             let target = volume.mount_point.clone();
             let thread_target = target.clone();
             let thread_token = token.clone();
+            let thread_pause = pause.clone();
             let tx = tx.clone();
             let mode = settings.mode;
             let passes = settings.passes;
@@ -505,7 +507,7 @@ impl App {
                             continue_on_error,
                             reuse_existing: false,
                             cancel: Some(thread_token),
-                            pause: None,
+                            pause: Some(thread_pause),
                         };
                         engine::run_os(&options, &mut reporter)
                     }
@@ -519,6 +521,7 @@ impl App {
                 target_path: target.clone(),
                 mode,
                 token,
+                pause,
                 latest: None,
                 phase: None,
                 total: 0,
@@ -862,6 +865,22 @@ impl App {
                     multi.active = index;
                 }
             }
+            KeyCode::Char('p') => {
+                let active = multi.active.min(multi.tasks.len().saturating_sub(1));
+                if let Some(task) = multi.tasks.get_mut(active) {
+                    task.pause.toggle();
+                }
+            }
+            KeyCode::Char('P') => {
+                let pause = !multi.tasks.iter().all(|task| task.pause.is_paused());
+                for task in &mut multi.tasks {
+                    if pause {
+                        task.pause.pause();
+                    } else {
+                        task.pause.resume();
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -989,10 +1008,12 @@ impl App {
         let mut tasks = Vec::with_capacity(targets.len());
         for (index, volume) in targets.iter().enumerate() {
             let token = CancelToken::new();
+            let pause = PauseToken::new();
             let target = volume.mount_point.clone();
             let thread_target = target.clone();
             let tx = tx.clone();
             let token_for_thread = token.clone();
+            let thread_pause = pause.clone();
             let presets = presets.clone();
             let health = self.cached_health(&volume.mount_point);
             thread::spawn(move || {
@@ -1000,6 +1021,7 @@ impl App {
                     file_size: settings.file_size,
                     ignore_sequential_errors: settings.ignore_errors,
                     seed: 0x5EED_1234_ABCD_0001,
+                    pause: Some(thread_pause),
                 };
                 let tx_events = tx.clone();
                 let result = run_suite(
@@ -1026,6 +1048,7 @@ impl App {
                 target_path: target.clone(),
                 mode: RunMode::WriteOnly,
                 token,
+                pause,
                 latest: None,
                 phase: None,
                 total: 0,

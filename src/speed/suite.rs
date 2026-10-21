@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::health;
 use crate::io::AlignedBlock;
+use crate::pause::PauseToken;
 use crate::speed::backend::{open_bench_file, prepare_file};
 use crate::speed::metrics::{Counters, MetricsSnapshot};
 
@@ -74,11 +75,12 @@ impl SuitePhase {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SuiteOptions {
     pub file_size: u64,
     pub ignore_sequential_errors: bool,
     pub seed: u64,
+    pub pause: Option<PauseToken>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -202,6 +204,7 @@ pub fn run_suite(
             options.seed,
             &cancel,
             options.ignore_sequential_errors,
+            options.pause.as_ref(),
             observer,
         ) {
             Ok(write) => write,
@@ -244,6 +247,7 @@ pub fn run_suite(
             options.seed,
             &cancel,
             options.ignore_sequential_errors,
+            options.pause.as_ref(),
             observer,
         ) {
             Ok(read) => read,
@@ -327,6 +331,7 @@ fn run_phase(
     seed: u64,
     cancel: &Arc<AtomicBool>,
     ignore_sequential_errors: bool,
+    pause: Option<&PauseToken>,
     observer: &mut dyn FnMut(SuiteEvent),
 ) -> Result<PhaseOutcome> {
     let blocks = file_size / preset.block_size;
@@ -347,13 +352,25 @@ fn run_phase(
         let done = Arc::clone(&done);
         let stop = Arc::clone(&stop);
         let cancel = Arc::clone(cancel);
+        let pause = pause.cloned();
         let error_tx = error_tx.clone();
         let block_size = preset.block_size;
         let is_read = phase == SuitePhase::Verify;
         handles.push(thread::spawn(move || {
             worker_loop(
-                &path, block_size, is_read, lane, workers, &order, &done, &stop, &cancel, strict,
-                &error_tx, seed,
+                &path,
+                block_size,
+                is_read,
+                lane,
+                workers,
+                &order,
+                &done,
+                &stop,
+                &cancel,
+                strict,
+                &error_tx,
+                seed,
+                pause.as_ref(),
             )
         }));
     }
@@ -366,7 +383,14 @@ fn run_phase(
     let mut curve: Vec<(u64, f64)> = Vec::new();
     let mut temperature: Vec<(u64, i32)> = Vec::new();
     let mut next_temperature = Instant::now();
+    let mut paused_total = Duration::ZERO;
     loop {
+        if pause.is_some_and(PauseToken::is_paused) {
+            let started = Instant::now();
+            thread::sleep(Duration::from_millis(20));
+            paused_total += started.elapsed();
+            continue;
+        }
         let finished = handles.iter().all(|handle| handle.is_finished());
         while let Ok(error) = error_rx.try_recv() {
             errors_logged += 1;
@@ -439,7 +463,7 @@ fn run_phase(
     if strict && errors_logged > 0 {
         stopped_at = first_error;
     }
-    let elapsed = start.elapsed();
+    let elapsed = start.elapsed().saturating_sub(paused_total);
     let metrics = counters.snapshot(elapsed);
     Ok(PhaseOutcome {
         metrics,
@@ -467,6 +491,7 @@ fn worker_loop(
     strict: bool,
     error_tx: &mpsc::Sender<WorkerError>,
     seed: u64,
+    pause: Option<&PauseToken>,
 ) -> Result<WorkerOutcome> {
     let mut file = open_bench_file(path, true)
         .with_context(|| format!("failed to open benchmark file {}", path.display()))?;
@@ -478,6 +503,9 @@ fn worker_loop(
     let mut verify_errors = 0u64;
 
     for position in (lane..order.len()).step_by(workers) {
+        while pause.is_some_and(PauseToken::is_paused) && !cancel.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(20));
+        }
         if cancel.load(Ordering::SeqCst) || stop.load(Ordering::SeqCst) {
             break;
         }
@@ -629,6 +657,7 @@ mod tests {
             file_size,
             ignore_sequential_errors: false,
             seed: 7,
+            pause: None,
         }
     }
 

@@ -519,6 +519,7 @@ struct MultiTask {
     target_path: PathBuf,
     mode: RunMode,
     token: CancelToken,
+    pause: PauseToken,
     latest: Option<ProgressInfo>,
     phase: Option<Phase>,
     total: u64,
