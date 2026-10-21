@@ -84,7 +84,7 @@ Quality settings:
 | Passes | 1-99, default 1; fixed to 1 for verify-existing mode |
 | Continue after errors | Default no; available for write-and-verify with more than one pass |
 | Delete test files after success | Default no; only after a successful run |
-| Export report automatically | Default yes; writes to `./urwtest-export` |
+| Export report automatically | Default yes; writes to a timestamped directory under `./urwtest-export` |
 
 After the settings, a summary is shown. Removable disks start after this confirmation, fixed disks show a yellow warning, and a volume containing Windows shows a red warning followed by a second confirmation dialog.
 
@@ -222,7 +222,7 @@ A single quality run exports:
 | `speed_position.svg` | Speed by write position |
 | `speed_time.svg` | Speed over time |
 
-A multi-drive quality or speed run exports to `urwtest-export/multi/`:
+A multi-drive quality or speed run exports to `urwtest-export/<timestamp>/multi/`:
 
 | File | Content |
 | --- | --- |

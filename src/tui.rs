@@ -482,6 +482,7 @@ impl TaskStatus {
 
 struct MultiTask {
     label: String,
+    target_path: PathBuf,
     mode: RunMode,
     token: CancelToken,
     latest: Option<ProgressInfo>,
@@ -760,14 +761,38 @@ impl App {
         if self.screen == Screen::Home && self.last_refresh.elapsed() >= Duration::from_secs(5) {
             self.rescan();
         }
-        if self.screen == Screen::Run
+        if matches!(self.screen, Screen::Run | Screen::MultiRun)
             && self.last_active_health_refresh.elapsed() >= Duration::from_secs(30)
         {
-            let mount = self.run.as_ref().map(|run| run.target_path.clone());
-            if let Some(mount) = mount {
+            let run_mount = self.run.as_ref().map(|run| run.target_path.clone());
+            if let Some(mount) = run_mount {
                 let health = self.cached_health(&mount);
                 if let Some(run) = self.run.as_mut() {
                     run.health = health;
+                }
+            }
+            let mounts: Vec<(usize, PathBuf)> = self
+                .multi
+                .as_ref()
+                .map(|multi| {
+                    multi
+                        .tasks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, task)| task.status == TaskStatus::Running)
+                        .map(|(index, task)| (index, task.target_path.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let refreshed: Vec<(usize, DriveHealth)> = mounts
+                .into_iter()
+                .map(|(index, mount)| (index, self.cached_health(&mount)))
+                .collect();
+            if let Some(multi) = self.multi.as_mut() {
+                for (index, health) in refreshed {
+                    if let Some(task) = multi.tasks.get_mut(index) {
+                        task.health = health;
+                    }
                 }
             }
             self.last_active_health_refresh = Instant::now();
@@ -1080,6 +1105,7 @@ impl App {
             });
             tasks.push(MultiTask {
                 label: volume.display_name(),
+                target_path: target.clone(),
                 mode,
                 token,
                 latest: None,
@@ -1552,6 +1578,7 @@ impl App {
             });
             tasks.push(MultiTask {
                 label: volume.display_name(),
+                target_path: target.clone(),
                 mode: RunMode::WriteOnly,
                 token,
                 latest: None,
@@ -3948,17 +3975,21 @@ impl App {
             .max(1.0);
         let max_y = samples
             .iter()
-            .map(|sample| sample.speed_mibps)
+            .map(|sample| sample.speed_mibps.max(sample.threshold_mibps))
             .fold(0.0, f64::max)
             .max(1.0);
         let stride = (samples.len() / 600).max(1);
         let mut write_points: Vec<(f64, f64)> = Vec::new();
         let mut verify_points: Vec<(f64, f64)> = Vec::new();
+        let mut baseline_points: Vec<(f64, f64)> = Vec::new();
+        let mut threshold_points: Vec<(f64, f64)> = Vec::new();
         for sample in samples.iter().step_by(stride) {
             let x = match results.axis {
                 Axis::Position => sample.position as f64,
                 Axis::Time => sample.run_ms as f64,
             };
+            baseline_points.push((x, sample.baseline_mibps));
+            threshold_points.push((x, sample.threshold_mibps));
             let point = (x, sample.speed_mibps);
             match sample.phase {
                 Phase::Write => write_points.push(point),
@@ -4002,6 +4033,38 @@ impl App {
                     .graph_type(GraphType::Line)
                     .style(ratatui::style::Style::default().fg(verify_color))
                     .data(&verify_points),
+            );
+        }
+        if baseline_points.len() > 1 {
+            datasets.push(
+                Dataset::default()
+                    .name("baseline")
+                    .marker(Marker::Dot)
+                    .graph_type(GraphType::Line)
+                    .style(
+                        ratatui::style::Style::default().fg(self
+                            .theme
+                            .dim()
+                            .fg
+                            .unwrap_or(ratatui::style::Color::Gray)),
+                    )
+                    .data(&baseline_points),
+            );
+        }
+        if threshold_points.len() > 1 {
+            datasets.push(
+                Dataset::default()
+                    .name("threshold")
+                    .marker(Marker::Dot)
+                    .graph_type(GraphType::Line)
+                    .style(
+                        ratatui::style::Style::default().fg(self
+                            .theme
+                            .warning()
+                            .fg
+                            .unwrap_or(ratatui::style::Color::Yellow)),
+                    )
+                    .data(&threshold_points),
             );
         }
         let x_mid = max_x / 2.0;
@@ -4315,6 +4378,7 @@ mod tests {
     fn test_multi_task() -> MultiTask {
         MultiTask {
             label: "X:".to_string(),
+            target_path: PathBuf::from("X:\\"),
             mode: RunMode::WriteOnly,
             token: CancelToken::new(),
             latest: None,

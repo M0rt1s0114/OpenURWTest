@@ -37,8 +37,13 @@ pub struct RunTrace {
     pub points: Vec<TracePoint>,
 }
 
+const MAX_TRACE_POINTS: usize = 1_000_000;
+
 impl RunTrace {
     pub fn record(&mut self, pass: u32, phase: Phase, position: u64, phase_ms: u64, run_ms: u64) {
+        if self.points.len() >= MAX_TRACE_POINTS {
+            self.points = self.points.iter().step_by(2).copied().collect();
+        }
         self.points.push(TracePoint {
             pass,
             phase,
