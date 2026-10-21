@@ -36,7 +36,9 @@ impl App {
             } else {
                 self.theme.dim()
             };
-            let marker = if task.status == TaskStatus::Running {
+            let marker = if task.pause.is_paused() {
+                "暂停 ".to_string()
+            } else if task.status == TaskStatus::Running {
                 format!("{} ", self.tab_activity_glyph(TestKind::Quality))
             } else {
                 String::new()
@@ -104,19 +106,37 @@ impl App {
         } else {
             0.0
         };
+        let paused = task.pause.is_paused();
         let gauge = Gauge::default()
             .block(
                 Block::bordered()
-                    .title(task.phase.map(Phase::label).unwrap_or("starting"))
-                    .border_style(self.theme.border()),
+                    .title(if paused {
+                        "已暂停".to_string()
+                    } else {
+                        task.phase
+                            .map(Phase::label)
+                            .unwrap_or("starting")
+                            .to_string()
+                    })
+                    .border_style(if paused {
+                        self.theme.warning()
+                    } else {
+                        self.theme.border()
+                    }),
             )
-            .gauge_style(if task.phase == Some(Phase::Verify) {
+            .gauge_style(if paused {
+                self.theme.warning()
+            } else if task.phase == Some(Phase::Verify) {
                 self.theme.gauge_verify()
             } else {
                 self.theme.gauge_write()
             })
             .ratio(ratio)
-            .label(format!("{} / {}", format_bytes(bytes), format_bytes(total)));
+            .label(if paused {
+                format!("已暂停  {} / {}", format_bytes(bytes), format_bytes(total))
+            } else {
+                format!("{} / {}", format_bytes(bytes), format_bytes(total))
+            });
         frame.render_widget(gauge, layout[2]);
 
         let log_lines: Vec<Line> = task
