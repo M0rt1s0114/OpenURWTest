@@ -372,27 +372,35 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let health = self.cached_health(&target);
         let target_for_thread = target.clone();
+        let panic_tx = tx.clone();
         thread::spawn(move || {
-            let mut reporter = TuiReporter::single(tx);
-            let result = match mode {
-                RunMode::VerifyExisting => {
-                    engine::verify_existing(&target_for_thread, &mut reporter)
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut reporter = TuiReporter::single(tx);
+                let result = match mode {
+                    RunMode::VerifyExisting => {
+                        engine::verify_existing(&target_for_thread, &mut reporter)
+                    }
+                    RunMode::WriteOnly | RunMode::WriteVerify => {
+                        let options = RunOptions {
+                            target: &target_for_thread,
+                            passes,
+                            verify: mode == RunMode::WriteVerify,
+                            continue_on_error,
+                            reuse_existing: false,
+                            cancel: Some(worker_token.clone()),
+                            pause: Some(worker_pause.clone()),
+                        };
+                        engine::run_os(&options, &mut reporter)
+                    }
+                };
+                if let Err(error) = result {
+                    reporter.failed(format!("{error:#}"));
                 }
-                RunMode::WriteOnly | RunMode::WriteVerify => {
-                    let options = RunOptions {
-                        target: &target_for_thread,
-                        passes,
-                        verify: mode == RunMode::WriteVerify,
-                        continue_on_error,
-                        reuse_existing: false,
-                        cancel: Some(worker_token.clone()),
-                        pause: Some(worker_pause.clone()),
-                    };
-                    engine::run_os(&options, &mut reporter)
-                }
-            };
-            if let Err(error) = result {
-                reporter.failed(format!("{error:#}"));
+            }));
+            if outcome.is_err() {
+                let _ = panic_tx.send(TuiEvent::Failed(
+                    "worker thread panicked; test data may remain on the volume".to_string(),
+                ));
             }
         });
         self.run = Some(RunState {
@@ -488,27 +496,39 @@ impl App {
             let passes = settings.passes;
             let continue_on_error = settings.continue_on_error;
             let health = self.cached_health(&volume.mount_point);
+            let panic_tx = tx.clone();
             thread::spawn(move || {
-                let mut reporter = TuiReporter::multi(index, tx);
-                let result = match mode {
-                    RunMode::VerifyExisting => {
-                        engine::verify_existing(&thread_target, &mut reporter)
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut reporter = TuiReporter::multi(index, tx);
+                    let result = match mode {
+                        RunMode::VerifyExisting => {
+                            engine::verify_existing(&thread_target, &mut reporter)
+                        }
+                        RunMode::WriteOnly | RunMode::WriteVerify => {
+                            let options = RunOptions {
+                                target: &thread_target,
+                                passes,
+                                verify: mode == RunMode::WriteVerify,
+                                continue_on_error,
+                                reuse_existing: false,
+                                cancel: Some(thread_token),
+                                pause: Some(thread_pause),
+                            };
+                            engine::run_os(&options, &mut reporter)
+                        }
+                    };
+                    if let Err(error) = result {
+                        reporter.failed(format!("{error:#}"));
                     }
-                    RunMode::WriteOnly | RunMode::WriteVerify => {
-                        let options = RunOptions {
-                            target: &thread_target,
-                            passes,
-                            verify: mode == RunMode::WriteVerify,
-                            continue_on_error,
-                            reuse_existing: false,
-                            cancel: Some(thread_token),
-                            pause: Some(thread_pause),
-                        };
-                        engine::run_os(&options, &mut reporter)
-                    }
-                };
-                if let Err(error) = result {
-                    reporter.failed(format!("{error:#}"));
+                }));
+                if outcome.is_err() {
+                    let _ = panic_tx.send((
+                        index,
+                        TuiEvent::Failed(
+                            "worker thread panicked; test data may remain on the volume"
+                                .to_string(),
+                        ),
+                    ));
                 }
             });
             tasks.push(MultiTask {
