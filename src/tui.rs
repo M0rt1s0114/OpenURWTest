@@ -636,6 +636,7 @@ struct App {
     checked: std::collections::BTreeSet<PathBuf>,
     kind: TestKind,
     speed: SpeedState,
+    ascii: bool,
     system_confirm_input: String,
     hotspots: RefCell<Vec<Hotspot>>,
     mouse_hover: Option<Rect>,
@@ -647,6 +648,7 @@ struct App {
     selected: usize,
     message: String,
     last_refresh: Instant,
+    last_active_health_refresh: Instant,
     health_cache: RefCell<Option<(PathBuf, DriveHealth, Instant)>>,
     settings: SettingsState,
     run: Option<RunState>,
@@ -665,6 +667,7 @@ impl App {
                 values: SpeedSettings::default(),
                 focus: 0,
             },
+            ascii: std::env::var_os("URWTEST_ASCII").is_some(),
             system_confirm_input: String::new(),
             hotspots: RefCell::new(Vec::new()),
             mouse_hover: None,
@@ -676,6 +679,7 @@ impl App {
             selected: 0,
             message: String::new(),
             last_refresh: Instant::now(),
+            last_active_health_refresh: Instant::now(),
             health_cache: RefCell::new(None),
             settings: SettingsState::new(Settings::default()),
             run: None,
@@ -755,6 +759,18 @@ impl App {
     fn tick(&mut self) {
         if self.screen == Screen::Home && self.last_refresh.elapsed() >= Duration::from_secs(5) {
             self.rescan();
+        }
+        if self.screen == Screen::Run
+            && self.last_active_health_refresh.elapsed() >= Duration::from_secs(30)
+        {
+            let mount = self.run.as_ref().map(|run| run.target_path.clone());
+            if let Some(mount) = mount {
+                let health = self.cached_health(&mount);
+                if let Some(run) = self.run.as_mut() {
+                    run.health = health;
+                }
+            }
+            self.last_active_health_refresh = Instant::now();
         }
         let mut finished: Option<(Summary, bool, bool, PathBuf)> = None;
         let mut failed: Option<String> = None;
@@ -1939,11 +1955,20 @@ impl App {
     fn spinner_glyph(&self) -> char {
         const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let index = (self.animation_epoch.elapsed().as_millis() / 100) as usize % FRAMES.len();
-        FRAMES[index]
+        if self.ascii {
+            const ASCII: [char; 4] = ['|', '/', '-', '\\'];
+            ASCII[index % ASCII.len()]
+        } else {
+            FRAMES[index]
+        }
     }
 
     fn tab_activity_glyph(&self, kind: TestKind) -> &'static str {
         let index = (self.animation_epoch.elapsed().as_millis() / 100) as usize;
+        if self.ascii {
+            const ASCII: [&str; 4] = ["-", "\\", "|", "/"];
+            return ASCII[index % ASCII.len()];
+        }
         match kind {
             TestKind::Quality => {
                 const FRAMES: [&str; 4] = ["◜", "◝", "◞", "◟"];
@@ -2762,7 +2787,11 @@ impl App {
             .collect();
         let dataset = Dataset::default()
             .name("speed")
-            .marker(Marker::Braille)
+            .marker(if self.ascii {
+                Marker::Dot
+            } else {
+                Marker::Braille
+            })
             .graph_type(GraphType::Line)
             .style(style)
             .data(&points);
@@ -2963,7 +2992,11 @@ impl App {
             .map(|(index, (name, _, color))| {
                 Dataset::default()
                     .name(name.clone())
-                    .marker(Marker::Braille)
+                    .marker(if self.ascii {
+                        Marker::Dot
+                    } else {
+                        Marker::Braille
+                    })
                     .graph_type(GraphType::Line)
                     .style(ratatui::style::Style::default().fg(*color))
                     .data(&data[index])
@@ -3543,6 +3576,15 @@ impl App {
                 if let Some(suite) = &task.suite {
                     for item in &suite.results {
                         let preset = PRESETS[item.preset_index];
+                        let (write_mibps, read_mibps) = if preset.random {
+                            let base = (item.preset_index - 2) * 2;
+                            (
+                                suite.bar_values[base].unwrap_or(item.write.write_mibps),
+                                suite.bar_values[base + 1].unwrap_or(item.read.read_mibps),
+                            )
+                        } else {
+                            (item.write.write_mibps, item.read.read_mibps)
+                        };
                         let errors = item.verify_errors + item.read_errors + item.write_errors;
                         let style = if item.failed() || item.stopped {
                             self.theme.danger()
@@ -3554,8 +3596,8 @@ impl App {
                                 "{} {} {:>9.1} {:>9.1} {:>9.0} {:>9.0} {:>7}",
                                 pad_display(&task.label, 14),
                                 pad_display(preset.name, 14),
-                                item.write.write_mibps,
-                                item.read.read_mibps,
+                                write_mibps,
+                                read_mibps,
                                 item.write.write_iops,
                                 item.read.read_iops,
                                 errors
@@ -3579,7 +3621,7 @@ impl App {
                 ));
             }
             lines.push(Line::styled(
-                "4K 柱为去掉最高/最低值的平均数；表格为原始平均值。",
+                "4K 表格与柱均使用去掉最高/最低值的平均数。",
                 self.theme.dim(),
             ));
             lines.push(Line::styled(
@@ -3938,7 +3980,11 @@ impl App {
             datasets.push(
                 Dataset::default()
                     .name("write")
-                    .marker(Marker::Braille)
+                    .marker(if self.ascii {
+                        Marker::Dot
+                    } else {
+                        Marker::Braille
+                    })
                     .graph_type(GraphType::Line)
                     .style(ratatui::style::Style::default().fg(write_color))
                     .data(&write_points),
@@ -3948,7 +3994,11 @@ impl App {
             datasets.push(
                 Dataset::default()
                     .name("read+verify")
-                    .marker(Marker::Braille)
+                    .marker(if self.ascii {
+                        Marker::Dot
+                    } else {
+                        Marker::Braille
+                    })
                     .graph_type(GraphType::Line)
                     .style(ratatui::style::Style::default().fg(verify_color))
                     .data(&verify_points),

@@ -109,6 +109,10 @@ The settings dialog is a multi-select list, so one run can execute several prese
 
 Q8 and Q32 are implemented as 8 or 32 synchronous QD1 worker lanes, not as a single-thread native asynchronous queue. Use the numbers for relative comparison; they are not directly interchangeable with CrystalDiskMark's queue model.
 
+Throughput is phase wall-clock throughput: it includes payload generation and, for the read phase, verification work. Per-I/O latency excludes the comparison itself. On very fast media the CPU cost of generating and checking the payload can still influence the reported throughput.
+
+Set `URWTEST_ASCII=1` to use ASCII spinners and chart markers on terminals that lack braille/box-drawing glyphs.
+
 Every selected preset is a complete write-then-read flow:
 
 1. the whole file is written (measured);

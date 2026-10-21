@@ -511,11 +511,20 @@ fn build_order(random: bool, blocks: u64, seed: u64, phase: SuitePhase) -> Vec<u
 
 fn fill_pattern(buffer: &mut [u8], block: u64, seed: u64) {
     let mut state = seed ^ block.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    for byte in buffer.iter_mut() {
+    let mut next = || {
         state ^= state >> 12;
         state ^= state << 25;
         state ^= state >> 27;
-        *byte = (state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 32) as u8;
+        state.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    };
+    let mut chunks = buffer.chunks_exact_mut(8);
+    for chunk in &mut chunks {
+        chunk.copy_from_slice(&next().to_le_bytes());
+    }
+    let remainder = chunks.into_remainder();
+    if !remainder.is_empty() {
+        let value = next().to_le_bytes();
+        remainder.copy_from_slice(&value[..remainder.len()]);
     }
 }
 
