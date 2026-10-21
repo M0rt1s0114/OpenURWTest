@@ -23,7 +23,7 @@ pub struct Cli {
     #[arg(long, global = true, hide = true)]
     pub no_progress: bool,
 
-    /// Export CSV/JSON/SVG reports to this directory after the run.
+    /// Export CSV/JSON/XLSX/PNG reports to this directory after the run.
     #[arg(long, global = true, value_name = "DIR")]
     pub export: Option<PathBuf>,
 

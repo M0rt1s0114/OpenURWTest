@@ -9,6 +9,7 @@ mod health;
 mod interactive;
 mod io;
 mod json;
+mod png;
 mod reporter;
 mod speed;
 mod terminal;
