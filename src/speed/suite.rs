@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
+use crate::health;
 use crate::io::AlignedBlock;
 use crate::speed::backend::{open_bench_file, prepare_file};
 use crate::speed::metrics::{Counters, MetricsSnapshot};
@@ -109,6 +110,7 @@ pub struct SuiteResult {
     pub stopped_at: Option<u64>,
     pub stopped_preset: Option<usize>,
     pub error: Option<String>,
+    pub temperature_points: Vec<(u64, i32)>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -173,6 +175,10 @@ pub fn run_suite(
         ..SuiteResult::default()
     };
     let mut abort = false;
+    let mut temperatures: Vec<(u64, i32)> = Vec::new();
+    if let Some(value) = health::read_health(target).temperature_c {
+        temperatures.push((0, value));
+    }
 
     for preset in presets {
         let index = catalog_index(preset);
@@ -267,6 +273,10 @@ pub fn run_suite(
     }
 
     result.cancelled = cancel.load(Ordering::SeqCst);
+    if let Some(value) = health::read_health(target).temperature_c {
+        temperatures.push((result.file_size, value));
+    }
+    result.temperature_points = temperatures;
     Ok(result)
 }
 
