@@ -23,7 +23,7 @@ pub struct Cli {
     #[arg(long, global = true, hide = true)]
     pub no_progress: bool,
 
-    /// Export CSV/JSON/SVG reports to this directory after the run.
+    /// Export CSV/JSON/XLSX/PNG reports to this directory after the run.
     #[arg(long, global = true, value_name = "DIR")]
     pub export: Option<PathBuf>,
 
@@ -109,6 +109,14 @@ pub struct SpeedArgs {
     /// Random seed.
     #[arg(long)]
     pub seed: Option<u64>,
+
+    /// Export PNG speed charts to this directory (default: CWD/urwtest-export/<timestamp>).
+    #[arg(long)]
+    pub export: Option<PathBuf>,
+
+    /// Include temperature in speed charts.
+    #[arg(long)]
+    pub export_temperature: bool,
 
     /// Print a JSON result.
     #[arg(long)]

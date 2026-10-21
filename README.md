@@ -6,7 +6,7 @@ English | [简体中文](README_CN.md)
 
 Mounted-volume quality and speed test tool for Windows
 
-OpenURWTest provides two independent test lines: **quality tests** that fill a volume with deterministic data and verify it, and **speed tests** that measure CrystalDiskMark-style sequential and 4K random write-then-read suites, IOPS, and latency. It offers a terminal UI and a command-line interface, multi-drive concurrent runs, temperature and health display, and CSV/JSON/Excel/SVG reports. The Cargo package and executable remain `urwtest-rs`.
+OpenURWTest provides two independent test lines: **quality tests** that fill a volume with deterministic data and verify it, and **speed tests** that measure CrystalDiskMark-style sequential and 4K random write-then-read suites, IOPS, and latency. It offers a terminal UI and a command-line interface, multi-drive concurrent runs, temperature and health display, and CSV/JSON/Excel/PNG reports. The Cargo package and executable remain `urwtest-rs`.
 
 ## Table of Contents
 
@@ -183,11 +183,12 @@ urwtest-rs speed --target E:\ --target D:\ --size 4g --json
 | `--continue-on-error` | Continue with the next pass after verification errors |
 | `--progress auto\|live\|plain\|off` | Progress output mode |
 | `--no-tui` | Use the plain text interface even in a terminal |
-| `--export <DIR>` | Export CSV/JSON/Excel/SVG reports after a quality run |
+| `--export <DIR>` | Quality: export CSV/JSON/Excel/PNG reports; speed: override the default PNG export directory |
 | `--color auto\|always\|never` | Control terminal colors |
 | `--preset <NAME>` | CDM preset: `seq1m-q8t1`, `seq1m-q1t1`, `rnd4k-q32t1`, `rnd4k-q1t1`, or `all`; repeat or comma-separate, default all four |
 | `--size <SIZE>` | Test file size, default `4g`; 1, 2, 4, and 8 GiB are the usual choices |
 | `--ignore-errors` | Continue sequential presets after the first read/verification error |
+| `--export-temperature` | Include temperature in speed PNG charts (off by default) |
 | `--seed <N>` | Override the workload seed |
 
 When stdout is not a terminal, or with `--no-tui`, the quality test uses the text interface.
@@ -219,8 +220,7 @@ A single quality run exports:
 | `events.csv` | Slowdown events |
 | `report.json` | Run statistics, analysis parameters, and export result |
 | `report.xlsx` | Excel workbook: Summary, Samples, and Events sheets |
-| `speed_position.svg` | Speed by write position |
-| `speed_time.svg` | Speed over time |
+| `quality_speed_temperature_<drive>.png` | Speed (write/read) and temperature over time, dual Y axis |
 
 A multi-drive quality or speed run exports to `urwtest-export/<timestamp>/multi/`:
 
@@ -229,6 +229,8 @@ A multi-drive quality or speed run exports to `urwtest-export/<timestamp>/multi/
 | `multi_summary.csv` | One row per drive, and one row per preset for speed runs: mode/preset, status, bytes, errors, temperature, health, speed metrics |
 | `multi_report.json` | The same rows as JSON |
 | `multi_report.xlsx` | Excel workbook with a Summary sheet |
+| `speed_seq_<drive>.png` | Sequential presets: write/read curves |
+| `speed_rand_<drive>.png` | Random presets: write/read curves |
 
 ## Platforms
 

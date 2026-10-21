@@ -22,6 +22,12 @@ impl HealthStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TemperatureSample {
+    pub elapsed_ms: u64,
+    pub temperature_c: i32,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DriveHealth {
     pub temperature_c: Option<i32>,
@@ -256,6 +262,16 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn temperature_sample_keeps_elapsed_and_value() {
+            let sample = crate::health::TemperatureSample {
+                elapsed_ms: 1234,
+                temperature_c: 42,
+            };
+            assert_eq!(sample.elapsed_ms, 1234);
+            assert_eq!(sample.temperature_c, 42);
+        }
 
         #[test]
         fn parses_temperature_descriptor() {

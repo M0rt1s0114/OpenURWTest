@@ -1,6 +1,6 @@
 [package]
 name = "urwtest-rs"
-version = "0.6.2-alpha"
+version = "0.7.0-alpha"
 edition = "2024"
 rust-version = "1.91"
 description = "Mounted-volume quality and speed test tool for Windows"
@@ -16,3 +16,4 @@ ctrlc = "3.4"
 libc = "0.2.189"
 ratatui = "0.30.2"
 rust_xlsxwriter = "0.101.0"
+plotters = { version = "0.3.7", default-features = false, features = ["ab_glyph", "bitmap_backend", "bitmap_encoder", "line_series", "point_series"] }

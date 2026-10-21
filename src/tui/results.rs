@@ -477,8 +477,32 @@ impl App {
             ),
             self.theme.dim(),
         );
+        let temperature_line = {
+            let history = &results.summary.temperature_history;
+            if history.is_empty() {
+                Line::styled("温度: 无采样", self.theme.dim())
+            } else {
+                let start = history
+                    .first()
+                    .map(|sample| sample.temperature_c)
+                    .unwrap_or(0);
+                let peak = history
+                    .iter()
+                    .map(|sample| sample.temperature_c)
+                    .max()
+                    .unwrap_or(start);
+                let end = history
+                    .last()
+                    .map(|sample| sample.temperature_c)
+                    .unwrap_or(peak);
+                Line::styled(
+                    format!("温度: 起始 {start} C   最高 {peak} C   结束 {end} C"),
+                    self.theme.dim(),
+                )
+            }
+        };
         frame.render_widget(
-            Paragraph::new(vec![verdict_line, stats_line]).block(
+            Paragraph::new(vec![verdict_line, stats_line, temperature_line]).block(
                 Block::bordered()
                     .title(" 结果 ")
                     .border_style(self.theme.border()),

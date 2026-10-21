@@ -175,6 +175,7 @@ fn app_with_multi(count: usize) -> App {
         export_message: String::new(),
         auto_export: false,
         exported: false,
+        notified: false,
         results_scroll: 0,
     });
     app.screen = Screen::MultiRun;

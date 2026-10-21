@@ -6,7 +6,7 @@
 
 用于 Windows 已挂载卷的质量与速度测试工具
 
-OpenURWTest 提供两条独立测试线：**质量测试**通过写入确定性数据并校验来检查容量与坏块；**速度测试**按 CrystalDiskMark 风格测量顺序与 4K 随机写后读套件的带宽、IOPS 与延迟。程序提供终端 TUI 和命令行界面、多盘并发、温度与健康显示，以及 CSV/JSON/Excel/SVG 报告。Cargo 包名与可执行文件名仍为 `urwtest-rs`。
+OpenURWTest 提供两条独立测试线：**质量测试**通过写入确定性数据并校验来检查容量与坏块；**速度测试**按 CrystalDiskMark 风格测量顺序与 4K 随机写后读套件的带宽、IOPS 与延迟。程序提供终端 TUI 和命令行界面、多盘并发、温度与健康显示，以及 CSV/JSON/Excel/PNG 报告。Cargo 包名与可执行文件名仍为 `urwtest-rs`。
 
 ## 目录
 
@@ -183,11 +183,12 @@ urwtest-rs speed --target E:\ --target D:\ --size 4g --json
 | `--continue-on-error` | 校验出错时继续下一圈 |
 | `--progress auto\|live\|plain\|off` | 进度输出模式 |
 | `--no-tui` | 即使当前是终端也使用文本界面 |
-| `--export <DIR>` | 质量测试结束后导出 CSV/JSON/Excel/SVG 报告 |
+| `--export <DIR>` | 质量测试导出 CSV/JSON/Excel/PNG；速度测试覆盖默认 PNG 导出目录 |
 | `--color auto\|always\|never` | 控制终端颜色 |
 | `--preset <NAME>` | CDM 预设：`seq1m-q8t1`、`seq1m-q1t1`、`rnd4k-q32t1`、`rnd4k-q1t1` 或 `all`；可重复或逗号分隔，默认四项全选 |
 | `--size <SIZE>` | 测试文件大小，默认 `4g`；常用 1、2、4、8 GiB |
 | `--ignore-errors` | 顺序项首次读取/校验错误后继续测试 |
+| `--export-temperature` | 速度测试 PNG 图中叠加温度（默认关闭） |
 | `--seed <N>` | 覆盖工作负载随机种子 |
 
 标准输出不是终端，或使用 `--no-tui` 时，质量测试使用文本界面。
@@ -219,8 +220,7 @@ urwtest-rs speed --target E:\ --target D:\ --size 4g --json
 | `events.csv` | 掉速事件 |
 | `report.json` | 运行统计、分析参数和导出结果 |
 | `report.xlsx` | Excel 工作簿：Summary、Samples、Events 三个工作表 |
-| `speed_position.svg` | 按写入位置的速度图 |
-| `speed_time.svg` | 按时间的速度图 |
+| `quality_speed_temperature_<盘符>.png` | 写入/读取速度与温度随时间变化，双 Y 轴 |
 
 多盘质量或速度测试导出到 `urwtest-export/<timestamp>/multi/`：
 
@@ -229,6 +229,8 @@ urwtest-rs speed --target E:\ --target D:\ --size 4g --json
 | `multi_summary.csv` | 每盘一行；速度测试每个预设一行：模式/预设、状态、字节数、错误、温度、健康、速度指标 |
 | `multi_report.json` | 同样内容的 JSON |
 | `multi_report.xlsx` | 含 Summary 工作表的 Excel 工作簿 |
+| `speed_seq_<盘符>.png` | 顺序预设的写入/读取曲线 |
+| `speed_rand_<盘符>.png` | 随机预设的写入/读取曲线 |
 
 ## 平台
 

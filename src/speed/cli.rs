@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::cli::SpeedArgs;
 use crate::json::escape;
+use crate::png_speed;
 use crate::speed::suite::{PRESETS, SpeedPreset, SuiteEvent, SuiteOptions, SuiteResult, run_suite};
 
 struct TargetResult {
@@ -112,6 +113,32 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
             handle
                 .join()
                 .map_err(|_| anyhow::anyhow!("speed suite thread panicked"))?,
+        );
+    }
+
+    let export_dir = args.export.clone().unwrap_or_else(|| {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("urwtest-export")
+            .join(stamp.to_string())
+    });
+    let mut exported = 0usize;
+    for item in &results {
+        if let Ok(result) = &item.result {
+            let target = std::path::Path::new(&item.target);
+            exported +=
+                png_speed::write_speed_pngs(&export_dir, target, result, args.export_temperature)?
+                    .len();
+        }
+    }
+    if !args.json {
+        eprintln!(
+            "exported {exported} PNG file(s) to {}",
+            export_dir.display()
         );
     }
 

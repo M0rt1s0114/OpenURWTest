@@ -44,6 +44,7 @@ use crate::engine::{self, PhaseStats, RunOptions, Summary};
 use crate::export::{self, ExportInput, MultiReportRow};
 use crate::format;
 use crate::health::{self, DriveHealth};
+use crate::png_speed;
 use crate::reporter::{ErrorInfo, ProgressInfo, Reporter};
 use crate::speed::suite::{
     PRESETS, PresetResult, SuiteEvent, SuiteOptions, SuitePhase, SuiteResult, run_suite,
@@ -54,6 +55,21 @@ use crate::types::{ColorMode, MouseMode, TestKind};
 use crate::volume::{self, VolumeInfo};
 
 type SpeedSeries = Vec<(String, Vec<(u64, f64)>, ratatui::style::Color)>;
+
+fn completion_notification(title: &str) {
+    let _ = title;
+    #[cfg(not(test))]
+    {
+        use std::io::Write;
+        let mut out = std::io::stdout();
+        let _ = out.write_all(b"\x07");
+        let _ = out.flush();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::SetTitle(title.to_string())
+        );
+    }
+}
 
 const APP_NAME: &str = "OpenURWTest";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -233,7 +249,7 @@ enum TuiEvent {
     Progress(ProgressInfo),
     PhaseDone { phase: Phase, stats: PhaseStats },
     Finished(Box<Summary>),
-    Suite(SuiteEvent),
+    Suite(Box<SuiteEvent>),
     SuiteFinished(Box<SuiteResult>),
     Failed(String),
 }
@@ -558,6 +574,7 @@ struct MultiRun {
     export_message: String,
     auto_export: bool,
     exported: bool,
+    notified: bool,
     results_scroll: usize,
 }
 

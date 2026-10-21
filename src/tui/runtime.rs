@@ -304,6 +304,11 @@ impl App {
             message,
         });
         self.screen = Screen::Results;
+        completion_notification(if success {
+            "OpenURWTest - QC 完成"
+        } else {
+            "OpenURWTest - QC 有错误"
+        });
         self.run = None;
     }
 
@@ -514,6 +519,7 @@ impl App {
             export_message: String::new(),
             auto_export: settings.auto_export,
             exported: false,
+            notified: false,
             results_scroll: 0,
         });
         self.screen = Screen::MultiRun;
@@ -577,7 +583,7 @@ impl App {
                     TuiEvent::Suite(event) => {
                         task.status = TaskStatus::Running;
                         let suite = task.suite.get_or_insert_with(SuiteView::default);
-                        match event {
+                        match *event {
                             SuiteEvent::PresetStarted { index } => {
                                 suite.current = index;
                                 suite.phase = None;
@@ -700,7 +706,7 @@ impl App {
                                     suite.bar_values[(index - 2) * 2] = Some(write_mean);
                                     suite.bar_values[(index - 2) * 2 + 1] = Some(read_mean);
                                 }
-                                suite.results.push(result);
+                                suite.results.push(result.clone());
                                 task.log.push_back(format!(
                                     "{} 完成：写 {:.1} MiB/s，读 {:.1} MiB/s，校验错误 {}",
                                     PRESETS.get(index).map(|item| item.name).unwrap_or("-"),
@@ -751,6 +757,20 @@ impl App {
             finished_all = multi.all_done();
         }
         if finished_all {
+            if let Some(multi) = self.multi.as_mut()
+                && !multi.notified
+            {
+                multi.notified = true;
+                let success = multi
+                    .tasks
+                    .iter()
+                    .all(|task| task.status == TaskStatus::Done && task.error.is_none());
+                completion_notification(if success {
+                    "OpenURWTest - 多盘完成"
+                } else {
+                    "OpenURWTest - 多盘有错误"
+                });
+            }
             self.maybe_auto_export_multi();
             self.screen = Screen::MultiResults;
         }
@@ -965,7 +985,7 @@ impl App {
                     options,
                     token_for_thread.flag(),
                     &mut |event| {
-                        let _ = tx_events.send((index, TuiEvent::Suite(event)));
+                        let _ = tx_events.send((index, TuiEvent::Suite(Box::new(event))));
                     },
                 );
                 let _ = std::fs::remove_file(thread_target.join("BENCH0001.DAT"));
@@ -1006,6 +1026,7 @@ impl App {
             export_message: String::new(),
             auto_export: true,
             exported: false,
+            notified: false,
             results_scroll: 0,
         });
         self.screen = Screen::MultiRun;
@@ -1023,15 +1044,25 @@ impl App {
             return;
         };
         let directory = export_directory().join("multi");
+        let png_inputs = self.speed_png_inputs();
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let message = match export::export_multi(&directory, kind, &rows) {
-                Ok(files) => format!(
-                    "exported {} file(s) to {}",
-                    files.len(),
-                    directory.display()
-                ),
-                Err(error) => format!("export failed: {error}"),
+            let mut count = 0usize;
+            let mut error = None;
+            match export::export_multi(&directory, kind, &rows) {
+                Ok(files) => count += files.len(),
+                Err(value) => error = Some(format!("report export failed: {value}")),
+            }
+            for (target, result) in &png_inputs {
+                match png_speed::write_speed_pngs(&directory, target, result, false) {
+                    Ok(files) => count += files.len(),
+                    Err(value) => error = Some(format!("PNG export failed: {value}")),
+                }
+            }
+            let message = if let Some(error) = error {
+                error
+            } else {
+                format!("exported {count} file(s) to {}", directory.display())
             };
             let _ = tx.send(message);
         });
@@ -1046,17 +1077,59 @@ impl App {
             return;
         };
         let directory = export_directory().join("multi");
-        let message = match export::export_multi(&directory, kind, &rows) {
-            Ok(files) => format!(
-                "exported {} file(s) to {}",
-                files.len(),
-                directory.display()
-            ),
-            Err(error) => format!("export failed: {error}"),
+        let mut count = 0usize;
+        let mut error = None;
+        match export::export_multi(&directory, kind, &rows) {
+            Ok(files) => count += files.len(),
+            Err(value) => error = Some(format!("report export failed: {value}")),
+        }
+        for (target, result) in self.speed_png_inputs() {
+            match png_speed::write_speed_pngs(&directory, &target, &result, false) {
+                Ok(files) => count += files.len(),
+                Err(value) => error = Some(format!("PNG export failed: {value}")),
+            }
+        }
+        let message = if let Some(error) = error {
+            error
+        } else {
+            format!("exported {count} file(s) to {}", directory.display())
         };
         if let Some(multi) = self.multi.as_mut() {
             multi.export_message = message;
         }
+    }
+
+    fn speed_png_inputs(&self) -> Vec<(PathBuf, SuiteResult)> {
+        let Some(multi) = self.multi.as_ref() else {
+            return Vec::new();
+        };
+        if multi.kind != TestKind::Speed {
+            return Vec::new();
+        }
+        multi
+            .tasks
+            .iter()
+            .filter_map(|task| {
+                let suite = task.suite.as_ref()?;
+                if suite.results.is_empty() {
+                    return None;
+                }
+                let result = SuiteResult {
+                    file_size: suite.total_bytes.max(
+                        suite
+                            .results
+                            .iter()
+                            .flat_map(|item| item.write_curve.iter().chain(item.read_curve.iter()))
+                            .map(|(bytes, _)| *bytes)
+                            .max()
+                            .unwrap_or(0),
+                    ),
+                    presets: suite.results.clone(),
+                    ..SuiteResult::default()
+                };
+                Some((task.target_path.clone(), result))
+            })
+            .collect()
     }
 
     pub(super) fn multi_report_rows(&self) -> Option<(&'static str, Vec<MultiReportRow>)> {

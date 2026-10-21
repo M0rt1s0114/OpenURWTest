@@ -12,13 +12,6 @@ use anyhow::{Context, Result};
 use crate::analysis::{Analysis, AnalysisParams, SlowKind, SpeedSample, ThresholdMode};
 use crate::engine::Summary;
 use crate::json::escape;
-use crate::trace::Phase;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum XAxis {
-    Position,
-    Time,
-}
 
 pub struct ExportInput<'a> {
     pub target: &'a Path,
@@ -48,14 +41,14 @@ pub fn export(directory: &Path, input: &ExportInput<'_>) -> Result<Vec<PathBuf>>
     write_xlsx(&path, input)?;
     written.push(path);
 
-    for (name, axis) in [
-        ("speed_position.svg", XAxis::Position),
-        ("speed_time.svg", XAxis::Time),
-    ] {
-        let path = directory.join(name);
-        write_svg(&path, input, axis)?;
-        written.push(path);
-    }
+    let path = directory.join(crate::png::quality_file_name(input.target));
+    crate::png::write_png(
+        &path,
+        input.target,
+        input.analysis,
+        &input.summary.temperature_history,
+    )?;
+    written.push(path);
 
     Ok(written)
 }
@@ -517,150 +510,6 @@ fn csv_escape(value: &str) -> String {
     }
 }
 
-fn write_svg(path: &Path, input: &ExportInput<'_>, axis: XAxis) -> Result<()> {
-    let samples = &input.analysis.samples;
-    let phase_filter = match axis {
-        XAxis::Position => Some(Phase::Write),
-        XAxis::Time => None,
-    };
-    let filtered: Vec<&SpeedSample> = samples
-        .iter()
-        .filter(|sample| phase_filter.is_none_or(|phase| sample.phase == phase))
-        .collect();
-    if filtered.is_empty() {
-        fs::write(path, empty_svg(axis))?;
-        return Ok(());
-    }
-
-    let width = 1000.0;
-    let height = 420.0;
-    let left = 70.0;
-    let right = 20.0;
-    let top = 30.0;
-    let bottom = 55.0;
-    let plot_width = width - left - right;
-    let plot_height = height - top - bottom;
-
-    let max_x = filtered
-        .iter()
-        .map(|sample| x_value(sample, axis))
-        .fold(0.0, f64::max)
-        .max(1.0);
-    let max_y = filtered
-        .iter()
-        .map(|sample| sample.speed_mibps.max(sample.baseline_mibps))
-        .fold(0.0, f64::max)
-        .max(1.0)
-        * 1.1;
-
-    let mut svg = String::new();
-    svg.push_str(&format!(
-        "<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>"
-    ));
-    svg.push_str("<rect width='100%' height='100%' fill='#0d1117'/>");
-
-    for step in 0..=4 {
-        let fraction = step as f64 / 4.0;
-        let gy = top + plot_height * (1.0 - fraction);
-        let value = max_y * fraction;
-        svg.push_str(&format!(
-            "<line x1='{left}' y1='{gy:.1}' x2='{:.1}' y2='{gy:.1}' stroke='#30363d'/>",
-            left + plot_width
-        ));
-        svg.push_str(&format!(
-            "<text x='{:.1}' y='{:.1}' fill='#8b949e' font-size='12'>{value:.0}</text>",
-            left - 8.0,
-            gy + 4.0
-        ));
-    }
-    for step in 0..=5 {
-        let fraction = step as f64 / 5.0;
-        let gx = left + plot_width * fraction;
-        let value = max_x * fraction;
-        svg.push_str(&format!(
-            "<line x1='{gx:.1}' y1='{top}' x2='{gx:.1}' y2='{:.1}' stroke='#30363d'/>",
-            top + plot_height
-        ));
-        let label = match axis {
-            XAxis::Position => format!("{:.1} GiB", value / (1024.0 * 1024.0 * 1024.0)),
-            XAxis::Time => format!("{:.1} min", value / 60000.0),
-        };
-        svg.push_str(&format!(
-            "<text x='{:.1}' y='{:.1}' fill='#8b949e' font-size='12'>{label}</text>",
-            gx - 12.0,
-            top + plot_height + 18.0
-        ));
-    }
-
-    for event in &input.analysis.events {
-        if phase_filter.is_some() && phase_filter != Some(event.phase) {
-            continue;
-        }
-        let start = match axis {
-            XAxis::Position => event.start_position as f64,
-            XAxis::Time => event.start_ms as f64,
-        };
-        let end = match axis {
-            XAxis::Position => event.end_position as f64,
-            XAxis::Time => event.end_ms as f64,
-        };
-        let x0 = left + start / max_x * plot_width;
-        let x1 = left + end / max_x * plot_width;
-        let color = match event.kind {
-            SlowKind::Spike => "#f85149",
-            SlowKind::Sustained => "#d29922",
-        };
-        svg.push_str(&format!(
-            "<rect x='{x0:.1}' y='{top}' width='{:.1}' height='{plot_height}' fill='{color}' fill-opacity='0.15'/>",
-            (x1 - x0).max(1.0)
-        ));
-    }
-
-    let mut speed_points = String::new();
-    let mut baseline_points = String::new();
-    for sample in &filtered {
-        let px = left + x_value(sample, axis) / max_x * plot_width;
-        let py = top + plot_height - sample.speed_mibps / max_y * plot_height;
-        speed_points.push_str(&format!("{px:.1},{py:.1} "));
-        let by = top + plot_height - sample.baseline_mibps / max_y * plot_height;
-        baseline_points.push_str(&format!("{px:.1},{by:.1} "));
-    }
-    svg.push_str(&format!(
-        "<polyline points='{}' fill='none' stroke='#8b949e' stroke-width='1' stroke-dasharray='4 4'/>",
-        baseline_points.trim()
-    ));
-    svg.push_str(&format!(
-        "<polyline points='{}' fill='none' stroke='#58a6ff' stroke-width='1.5'/>",
-        speed_points.trim()
-    ));
-    svg.push_str(&format!(
-        "<text x='{left}' y='18' fill='#c9d1d9' font-size='14'>speed (MiB/s) vs {}</text>",
-        match axis {
-            XAxis::Position => "write position",
-            XAxis::Time => "time",
-        }
-    ));
-    svg.push_str("</svg>");
-    fs::write(path, svg)?;
-    Ok(())
-}
-
-fn x_value(sample: &SpeedSample, axis: XAxis) -> f64 {
-    match axis {
-        XAxis::Position => sample.position as f64,
-        XAxis::Time => sample.run_ms as f64,
-    }
-}
-
-fn empty_svg(axis: XAxis) -> String {
-    format!(
-        "<svg xmlns='http://www.w3.org/2000/svg' width='1000' height='420'><rect width='100%' height='100%' fill='#0d1117'/><text x='40' y='200' fill='#c9d1d9'>no {} data</text></svg>",
-        match axis {
-            XAxis::Position => "position",
-            XAxis::Time => "time",
-        }
-    )
-}
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -668,7 +517,8 @@ mod tests {
     use super::*;
     use crate::analysis::analyze;
     use crate::engine::Summary;
-    use crate::trace::RunTrace;
+    use crate::health::TemperatureSample;
+    use crate::trace::{Phase, RunTrace};
 
     fn sample_trace() -> RunTrace {
         let mut trace = RunTrace::default();
@@ -733,6 +583,20 @@ mod tests {
             passes: 1,
             passed: 1,
             trace: sample_trace(),
+            temperature_history: vec![
+                TemperatureSample {
+                    elapsed_ms: 0,
+                    temperature_c: 40,
+                },
+                TemperatureSample {
+                    elapsed_ms: 500,
+                    temperature_c: 45,
+                },
+                TemperatureSample {
+                    elapsed_ms: 1000,
+                    temperature_c: 50,
+                },
+            ],
             ..Summary::default()
         };
         let params = AnalysisParams::default();
@@ -744,12 +608,11 @@ mod tests {
             params: &params,
         };
         let files = export(&directory, &input).expect("export");
-        assert_eq!(files.len(), 6);
+        assert_eq!(files.len(), 5);
         let samples = std::fs::read_to_string(directory.join("samples.csv")).expect("samples");
         assert!(samples.lines().count() > 10);
-        let svg = std::fs::read_to_string(directory.join("speed_position.svg")).expect("svg");
-        assert!(svg.contains("<polyline"));
-        assert!(svg.contains("speed (MiB/s)"));
+        let png = std::fs::read(directory.join("quality_speed_temperature_X.png")).expect("png");
+        assert!(png.starts_with(b"\x89PNG"));
         let json = std::fs::read_to_string(directory.join("report.json")).expect("json");
         assert!(json.contains("analysis_mode"));
         let xlsx = std::fs::read(directory.join("report.xlsx")).expect("xlsx");
