@@ -339,6 +339,7 @@ enum SettingsField {
     Continue,
     Delete,
     Export,
+    ReportTemperature,
 }
 
 impl SettingsField {
@@ -348,13 +349,15 @@ impl SettingsField {
             SettingsField::Passes => SettingsField::Continue,
             SettingsField::Continue => SettingsField::Delete,
             SettingsField::Delete => SettingsField::Export,
-            SettingsField::Export => SettingsField::Mode,
+            SettingsField::Export => SettingsField::ReportTemperature,
+            SettingsField::ReportTemperature => SettingsField::Mode,
         }
     }
 
     fn previous(self) -> Self {
         match self {
-            SettingsField::Mode => SettingsField::Export,
+            SettingsField::Mode => SettingsField::ReportTemperature,
+            SettingsField::ReportTemperature => SettingsField::Export,
             SettingsField::Passes => SettingsField::Mode,
             SettingsField::Continue => SettingsField::Passes,
             SettingsField::Delete => SettingsField::Continue,
@@ -370,6 +373,7 @@ struct Settings {
     continue_on_error: bool,
     delete_after: bool,
     auto_export: bool,
+    report_temperature: bool,
 }
 
 impl Default for Settings {
@@ -380,6 +384,7 @@ impl Default for Settings {
             continue_on_error: false,
             delete_after: false,
             auto_export: true,
+            report_temperature: false,
         }
     }
 }
@@ -425,6 +430,7 @@ struct RunState {
     passes: u32,
     delete_after: bool,
     auto_export: bool,
+    report_temperature: bool,
     latest: Option<ProgressInfo>,
     phase: Option<Phase>,
     total: u64,
@@ -729,6 +735,7 @@ impl ResultsState {
             summary: &self.summary,
             analysis: &self.analysis,
             params: &self.params,
+            include_temperature: false,
         };
         match export::export(&directory, &input) {
             Ok(files) => {

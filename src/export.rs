@@ -18,6 +18,7 @@ pub struct ExportInput<'a> {
     pub summary: &'a Summary,
     pub analysis: &'a Analysis,
     pub params: &'a AnalysisParams,
+    pub include_temperature: bool,
 }
 
 pub fn export(directory: &Path, input: &ExportInput<'_>) -> Result<Vec<PathBuf>> {
@@ -46,7 +47,11 @@ pub fn export(directory: &Path, input: &ExportInput<'_>) -> Result<Vec<PathBuf>>
         &path,
         input.target,
         input.analysis,
-        &input.summary.temperature_history,
+        if input.include_temperature {
+            &input.summary.temperature_history
+        } else {
+            &[]
+        },
     )?;
     written.push(path);
 
@@ -606,6 +611,7 @@ mod tests {
             summary: &summary,
             analysis: &analysis,
             params: &params,
+            include_temperature: true,
         };
         let files = export(&directory, &input).expect("export");
         assert_eq!(files.len(), 5);
@@ -618,6 +624,21 @@ mod tests {
         let xlsx = std::fs::read(directory.join("report.xlsx")).expect("xlsx");
         assert!(xlsx.starts_with(b"PK"));
         assert!(xlsx.len() > 1024);
+
+        let mut no_temperature = summary.clone();
+        no_temperature.temperature_history.clear();
+        let no_temp_analysis = analyze(&no_temperature.trace, &params);
+        let no_temp_input = ExportInput {
+            target: Path::new("X:"),
+            summary: &no_temperature,
+            analysis: &no_temp_analysis,
+            params: &params,
+            include_temperature: true,
+        };
+        export(&directory, &no_temp_input).expect("no-temperature export");
+        let png = std::fs::read(directory.join("quality_speed_temperature_X.png"))
+            .expect("no-temperature png");
+        assert!(png.starts_with(b"\x89PNG"));
         let _ = std::fs::remove_dir_all(&directory);
     }
 }

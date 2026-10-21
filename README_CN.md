@@ -220,7 +220,7 @@ urwtest-rs speed --target E:\ --target D:\ --size 4g --json
 | `events.csv` | 掉速事件 |
 | `report.json` | 运行统计、分析参数和导出结果 |
 | `report.xlsx` | Excel 工作簿：Summary、Samples、Events 三个工作表 |
-| `quality_speed_temperature_<盘符>.png` | 写入/读取速度与温度随时间变化，双 Y 轴 |
+| `quality_speed_temperature_<盘符>.png` | 写入/读取速度随时间变化；只有 TUI 打开“报告图片包含温度”且磁盘支持温度时才叠加温度 |
 
 多盘质量或速度测试导出到 `urwtest-export/<timestamp>/multi/`：
 

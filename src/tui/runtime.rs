@@ -7,6 +7,14 @@ impl App {
         self.volumes.get(self.selected)
     }
 
+    pub(super) fn report_temperature_supported(&self) -> bool {
+        self.target_volumes().first().is_some_and(|volume| {
+            self.cached_health(&volume.mount_point)
+                .temperature_c
+                .is_some()
+        })
+    }
+
     pub(super) fn rescan(&mut self) {
         let current = self
             .volumes
@@ -111,7 +119,7 @@ impl App {
             }
             self.last_active_health_refresh = Instant::now();
         }
-        let mut finished: Option<(Summary, bool, bool, PathBuf)> = None;
+        let mut finished: Option<(Summary, bool, bool, bool, PathBuf)> = None;
         let mut failed: Option<String> = None;
         if let Some(run) = self.run.as_mut() {
             while let Ok(event) = run.rx.try_recv() {
@@ -152,6 +160,7 @@ impl App {
                             *summary,
                             run.delete_after,
                             run.auto_export,
+                            run.report_temperature,
                             run.target_path.clone(),
                         ));
                         break;
@@ -167,8 +176,14 @@ impl App {
                 run.log.pop_front();
             }
         }
-        if let Some((summary, delete_after, auto_export, target)) = finished {
-            self.finish_run(summary, delete_after, auto_export, target);
+        if let Some((summary, delete_after, auto_export, report_temperature, target)) = finished {
+            self.finish_run(
+                summary,
+                delete_after,
+                auto_export,
+                report_temperature,
+                target,
+            );
         } else if let Some(error) = failed {
             self.message = error;
             self.screen = Screen::Home;
@@ -246,6 +261,7 @@ impl App {
         summary: Summary,
         delete_after: bool,
         auto_export: bool,
+        report_temperature: bool,
         target: PathBuf,
     ) {
         let params = AnalysisParams::default();
@@ -273,6 +289,7 @@ impl App {
                     summary: &export_summary,
                     analysis: &export_analysis,
                     params: &export_params,
+                    include_temperature: report_temperature,
                 };
                 let result = match export::export(&directory, &input) {
                     Ok(files) => format!(
@@ -382,6 +399,7 @@ impl App {
             passes,
             delete_after: settings.delete_after,
             auto_export: settings.auto_export,
+            report_temperature: settings.report_temperature,
             latest: None,
             phase: None,
             total: 0,

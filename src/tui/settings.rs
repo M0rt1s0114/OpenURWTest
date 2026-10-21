@@ -56,6 +56,16 @@ impl App {
             yes_no(values.auto_export).to_string(),
             focused(SettingsField::Export),
         ));
+        let temperature_text = if self.report_temperature_supported() {
+            yes_no(values.report_temperature).to_string()
+        } else {
+            "否 (目标盘不支持温度)".to_string()
+        };
+        lines.push(self.settings_line(
+            "报告图片包含温度",
+            temperature_text,
+            focused(SettingsField::ReportTemperature),
+        ));
         lines.push(Line::from(""));
         let block = Block::bordered()
             .title(format!(
@@ -76,6 +86,7 @@ impl App {
             SettingsField::Continue,
             SettingsField::Delete,
             SettingsField::Export,
+            SettingsField::ReportTemperature,
         ];
         for (index, field) in fields.iter().enumerate() {
             self.record_hotspot(

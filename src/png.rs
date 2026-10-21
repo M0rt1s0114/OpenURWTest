@@ -128,16 +128,22 @@ pub fn write_quality_png(
         })
         .collect();
     let temperature = compact(&temperature, max_time);
-    let min_temp = temperature
-        .iter()
-        .map(|(_, value)| *value)
-        .fold(f64::MAX, f64::min)
-        - 5.0;
-    let max_temp = temperature
-        .iter()
-        .map(|(_, value)| *value)
-        .fold(f64::MIN, f64::max)
-        + 5.0;
+    let (min_temp, max_temp) = if temperature.is_empty() {
+        (0.0, 1.0)
+    } else {
+        (
+            temperature
+                .iter()
+                .map(|(_, value)| *value)
+                .fold(f64::MAX, f64::min)
+                - 5.0,
+            temperature
+                .iter()
+                .map(|(_, value)| *value)
+                .fold(f64::MIN, f64::max)
+                + 5.0,
+        )
+    };
     let chart = ChartBuilder::on(&root)
         .caption(
             format!("{} 速度与温度", drive_suffix(target)),

@@ -388,6 +388,12 @@ impl App {
             SettingsField::Export => {
                 self.settings.values.auto_export = !self.settings.values.auto_export;
             }
+            SettingsField::ReportTemperature => {
+                if self.report_temperature_supported() {
+                    self.settings.values.report_temperature =
+                        !self.settings.values.report_temperature;
+                }
+            }
             SettingsField::Passes => {}
         }
     }

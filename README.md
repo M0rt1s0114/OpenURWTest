@@ -220,7 +220,7 @@ A single quality run exports:
 | `events.csv` | Slowdown events |
 | `report.json` | Run statistics, analysis parameters, and export result |
 | `report.xlsx` | Excel workbook: Summary, Samples, and Events sheets |
-| `quality_speed_temperature_<drive>.png` | Speed (write/read) and temperature over time, dual Y axis |
+| `quality_speed_temperature_<drive>.png` | Speed (write/read) over time; temperature is included only when the TUI option "include temperature in report image" is enabled and the drive reports it |
 
 A multi-drive quality or speed run exports to `urwtest-export/<timestamp>/multi/`:
 

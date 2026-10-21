@@ -235,6 +235,7 @@ fn export_if_requested(
             summary,
             analysis: &analysis,
             params: &params,
+            include_temperature: false,
         },
     )?;
     console.info(&format!(

@@ -76,16 +76,22 @@ fn write_speed_png(
         .map(|(_, mibps)| *mibps)
         .fold(1.0, f64::max)
         * 1.1;
-    let min_temp = temperatures
-        .iter()
-        .map(|(_, value)| *value as f64)
-        .fold(f64::MAX, f64::min)
-        - 5.0;
-    let max_temp = temperatures
-        .iter()
-        .map(|(_, value)| *value as f64)
-        .fold(f64::MIN, f64::max)
-        + 5.0;
+    let (min_temp, max_temp) = if temperatures.is_empty() {
+        (0.0, 1.0)
+    } else {
+        (
+            temperatures
+                .iter()
+                .map(|(_, value)| *value as f64)
+                .fold(f64::MAX, f64::min)
+                - 5.0,
+            temperatures
+                .iter()
+                .map(|(_, value)| *value as f64)
+                .fold(f64::MIN, f64::max)
+                + 5.0,
+        )
+    };
     let chart = ChartBuilder::on(&root)
         .caption(
             format!(
