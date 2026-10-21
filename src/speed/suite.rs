@@ -770,4 +770,32 @@ mod tests {
         assert_eq!(result.presets[0].verify_errors, 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn paused_suite_resumes_after_token() {
+        let dir = temp_dir("speed-pause");
+        let pause = PauseToken::new();
+        pause.pause();
+        let pause_for_thread = pause.clone();
+        let dir_for_thread = dir.clone();
+        let handle = thread::spawn(move || {
+            let mut options = options(8 * 4096);
+            options.pause = Some(pause_for_thread);
+            let cancel = Arc::new(AtomicBool::new(false));
+            run_suite(
+                &dir_for_thread,
+                &[preset(4096, true)],
+                options,
+                cancel,
+                &mut |_| {},
+            )
+            .expect("suite")
+        });
+        thread::sleep(Duration::from_millis(40));
+        assert!(!handle.is_finished());
+        pause.resume();
+        let result = handle.join().expect("pause thread");
+        assert_eq!(result.presets.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
