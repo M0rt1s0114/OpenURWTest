@@ -16,6 +16,7 @@ pub fn write_speed_pngs(
     directory: &Path,
     target: &Path,
     result: &SuiteResult,
+    include_temperature: bool,
 ) -> Result<Vec<PathBuf>> {
     ensure_font();
     std::fs::create_dir_all(directory)
@@ -23,13 +24,29 @@ pub fn write_speed_pngs(
     let mut written = Vec::new();
     for (name, random) in [("speed_seq", false), ("speed_rand", true)] {
         let path = directory.join(format!("{name}_{}.png", drive_suffix(target)));
-        write_speed_png(&path, target, result, random)?;
+        write_speed_png(
+            &path,
+            target,
+            result,
+            random,
+            if include_temperature {
+                &result.temperature_points
+            } else {
+                &[]
+            },
+        )?;
         written.push(path);
     }
     Ok(written)
 }
 
-fn write_speed_png(path: &Path, target: &Path, result: &SuiteResult, random: bool) -> Result<()> {
+fn write_speed_png(
+    path: &Path,
+    target: &Path,
+    result: &SuiteResult,
+    random: bool,
+    temperatures: &[(u64, i32)],
+) -> Result<()> {
     let root = BitMapBackend::new(path, (WIDTH, HEIGHT)).into_drawing_area();
     root.fill(&WHITE).map_err(draw_error)?;
     let entries: Vec<(usize, &crate::speed::suite::PresetResult)> = result
@@ -54,7 +71,17 @@ fn write_speed_png(path: &Path, target: &Path, result: &SuiteResult, random: boo
         .map(|(_, mibps)| *mibps)
         .fold(1.0, f64::max)
         * 1.1;
-    let mut chart = ChartBuilder::on(&root)
+    let min_temp = temperatures
+        .iter()
+        .map(|(_, value)| *value as f64)
+        .fold(f64::MAX, f64::min)
+        - 5.0;
+    let max_temp = temperatures
+        .iter()
+        .map(|(_, value)| *value as f64)
+        .fold(f64::MIN, f64::max)
+        + 5.0;
+    let chart = ChartBuilder::on(&root)
         .caption(
             format!(
                 "{} {}",
@@ -70,14 +97,23 @@ fn write_speed_png(path: &Path, target: &Path, result: &SuiteResult, random: boo
         .margin(24)
         .x_label_area_size(54)
         .y_label_area_size(80)
+        .right_y_label_area_size(80)
         .build_cartesian_2d(0.0f64..max_x, 0.0f64..max_y)
         .map_err(draw_error)?;
+    let mut chart = chart.set_secondary_coord(0.0f64..max_x, min_temp..max_temp);
     chart
         .configure_mesh()
         .x_desc("文件位置 (MiB)")
         .y_desc("MiB/s")
         .draw()
         .map_err(draw_error)?;
+    if !temperatures.is_empty() {
+        chart
+            .configure_secondary_axes()
+            .y_desc("温度 (C)")
+            .draw()
+            .map_err(draw_error)?;
+    }
 
     let palette: [(RGBColor, RGBColor); 2] = if random {
         [
@@ -135,6 +171,20 @@ fn write_speed_png(path: &Path, target: &Path, result: &SuiteResult, random: boo
                 .label(format!("{} read", preset.name))
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], read_color));
         }
+    }
+    if !temperatures.is_empty() {
+        let points: Vec<(f64, f64)> = temperatures
+            .iter()
+            .map(|(bytes, value)| (*bytes as f64 / MIB, *value as f64))
+            .collect();
+        chart
+            .draw_secondary_series(LineSeries::new(
+                points,
+                RGBColor(214, 39, 40).stroke_width(2),
+            ))
+            .map_err(draw_error)?
+            .label("temperature")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RGBColor(214, 39, 40)));
     }
     chart
         .configure_series_labels()

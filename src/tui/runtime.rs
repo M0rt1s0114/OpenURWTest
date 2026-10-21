@@ -1054,7 +1054,7 @@ impl App {
                 Err(value) => error = Some(format!("report export failed: {value}")),
             }
             for (target, result) in &png_inputs {
-                match png_speed::write_speed_pngs(&directory, target, result) {
+                match png_speed::write_speed_pngs(&directory, target, result, false) {
                     Ok(files) => count += files.len(),
                     Err(value) => error = Some(format!("PNG export failed: {value}")),
                 }
@@ -1084,7 +1084,7 @@ impl App {
             Err(value) => error = Some(format!("report export failed: {value}")),
         }
         for (target, result) in self.speed_png_inputs() {
-            match png_speed::write_speed_pngs(&directory, &target, &result) {
+            match png_speed::write_speed_pngs(&directory, &target, &result, false) {
                 Ok(files) => count += files.len(),
                 Err(value) => error = Some(format!("PNG export failed: {value}")),
             }
