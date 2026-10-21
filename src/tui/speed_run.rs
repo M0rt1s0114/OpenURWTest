@@ -190,7 +190,7 @@ impl App {
             Paragraph::new(vec![
                 Line::from(format!(
                     " {}  速度测试  elapsed {}  temp {}",
-                    task.label,
+                    task.task_label(),
                     format_seconds(multi.started.elapsed().as_secs()),
                     task.health
                         .temperature_c
@@ -204,7 +204,7 @@ impl App {
                     preset.name,
                     format_bytes(self.speed.values.file_size),
                     yes_no(!self.speed.values.ignore_errors),
-                    if task.pause.is_paused() {
+                    if task.task_paused() {
                         "   已暂停"
                     } else {
                         ""
@@ -309,7 +309,7 @@ impl App {
         } else {
             0.0
         };
-        let paused = task.pause.is_paused();
+        let paused = task.task_paused();
         let gauge = Gauge::default()
             .block(
                 Block::bordered()

@@ -36,7 +36,7 @@ impl App {
             } else {
                 self.theme.dim()
             };
-            let marker = if task.pause.is_paused() {
+            let marker = if task.task_paused() {
                 "暂停 ".to_string()
             } else if task.status == TaskStatus::Running {
                 format!("{} ", self.tab_activity_glyph(TestKind::Quality))
@@ -48,8 +48,8 @@ impl App {
                     " [{} {}{} {}] ",
                     index + 1,
                     marker,
-                    task.label,
-                    task.status.label()
+                    task.task_label(),
+                    task.task_status().label()
                 ),
                 style,
             ));
@@ -106,7 +106,7 @@ impl App {
         } else {
             0.0
         };
-        let paused = task.pause.is_paused();
+        let paused = task.task_paused();
         let gauge = Gauge::default()
             .block(
                 Block::bordered()

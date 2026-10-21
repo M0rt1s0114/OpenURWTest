@@ -116,7 +116,7 @@ impl App {
         } else {
             0.0
         };
-        let paused = run.pause.is_paused();
+        let paused = run.task_paused();
         let gauge = Gauge::default()
             .block(
                 Block::bordered()

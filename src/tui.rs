@@ -468,6 +468,12 @@ impl Axis {
     }
 }
 
+trait TaskView {
+    fn task_label(&self) -> &str;
+    fn task_paused(&self) -> bool;
+    fn task_status(&self) -> TaskStatus;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
     Home,
@@ -771,6 +777,34 @@ fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
         ])
         .split(vertical[1]);
     horizontal[1]
+}
+
+impl TaskView for RunState {
+    fn task_label(&self) -> &str {
+        &self.target
+    }
+
+    fn task_paused(&self) -> bool {
+        self.pause.is_paused()
+    }
+
+    fn task_status(&self) -> TaskStatus {
+        TaskStatus::Running
+    }
+}
+
+impl TaskView for MultiTask {
+    fn task_label(&self) -> &str {
+        &self.label
+    }
+
+    fn task_paused(&self) -> bool {
+        self.pause.is_paused()
+    }
+
+    fn task_status(&self) -> TaskStatus {
+        self.status
+    }
 }
 
 #[cfg(test)]
