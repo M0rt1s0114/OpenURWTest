@@ -17,7 +17,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::canvas::{Canvas, Line as CanvasLine, Rectangle};
+use ratatui::widgets::canvas::{Canvas, Rectangle};
 use ratatui::widgets::{
     Axis as ChartAxis, Block, Chart, Clear, Dataset, Gauge, GraphType, List, ListItem, ListState,
     Paragraph, Wrap,
@@ -112,6 +112,7 @@ pub fn run_target(
         continue_on_error,
         color,
     );
+    drop(mouse_guard);
     ratatui::restore();
     result
 }
@@ -180,6 +181,7 @@ pub fn run_home(color: ColorMode, mouse: MouseMode) -> Result<()> {
     );
     let mut mouse_guard = MouseGuard::new(mouse != MouseMode::Off);
     let result = app_loop(&mut mouse_guard, &mut terminal, color);
+    drop(mouse_guard);
     ratatui::restore();
     result
 }
@@ -631,6 +633,7 @@ struct App {
     selected: usize,
     message: String,
     last_refresh: Instant,
+    health_cache: RefCell<Option<(PathBuf, DriveHealth, Instant)>>,
     settings: SettingsState,
     run: Option<RunState>,
     results: Option<ResultsState>,
@@ -659,6 +662,7 @@ impl App {
             selected: 0,
             message: String::new(),
             last_refresh: Instant::now(),
+            health_cache: RefCell::new(None),
             settings: SettingsState::new(Settings::default()),
             run: None,
             results: None,
@@ -721,8 +725,21 @@ impl App {
         self.last_refresh = Instant::now();
     }
 
+    fn cached_health(&self, mount: &std::path::Path) -> DriveHealth {
+        let mut cache = self.health_cache.borrow_mut();
+        if let Some((cached_mount, health, at)) = cache.as_ref()
+            && cached_mount == mount
+            && at.elapsed() < Duration::from_secs(10)
+        {
+            return *health;
+        }
+        let health = health::read_health(mount);
+        *cache = Some((mount.to_path_buf(), health, Instant::now()));
+        health
+    }
+
     fn tick(&mut self) {
-        if self.screen == Screen::Home && self.last_refresh.elapsed() >= Duration::from_secs(1) {
+        if self.screen == Screen::Home && self.last_refresh.elapsed() >= Duration::from_secs(5) {
             self.rescan();
         }
         let mut finished: Option<(Summary, bool, bool, PathBuf)> = None;
@@ -856,7 +873,8 @@ impl App {
 
     fn open_settings(&mut self, mode: RunMode) {
         if self.kind == TestKind::Speed {
-            self.message = "速度测试 TUI 尚未完成（可用 CLI speed）".to_string();
+            self.speed.focus = 0;
+            self.screen = Screen::SpeedSettings;
             return;
         }
         let Some(volume) = self.selected_volume() else {
@@ -891,7 +909,7 @@ impl App {
         let token = CancelToken::new();
         let worker_token = token.clone();
         let (tx, rx) = mpsc::channel();
-        let health = health::read_health(&target);
+        let health = self.cached_health(&target);
         let target_for_thread = target.clone();
         thread::spawn(move || {
             let mut reporter = ChannelReporter { tx };
@@ -1008,7 +1026,7 @@ impl App {
             let mode = settings.mode;
             let passes = settings.passes;
             let continue_on_error = settings.continue_on_error;
-            let health = health::read_health(&volume.mount_point);
+            let health = self.cached_health(&volume.mount_point);
             thread::spawn(move || {
                 let mut reporter = MultiReporter { index, tx };
                 let result = match mode {
@@ -1470,7 +1488,7 @@ impl App {
             let tx = tx.clone();
             let token_for_thread = token.clone();
             let presets = presets.clone();
-            let health = health::read_health(&volume.mount_point);
+            let health = self.cached_health(&volume.mount_point);
             thread::spawn(move || {
                 let options = SuiteOptions {
                     file_size: settings.file_size,
@@ -1662,23 +1680,19 @@ impl App {
             self.speed.focus == 5,
         ));
         lines.push(Line::from(""));
-        lines.push(Line::styled(
-            "Space 勾选  a 全选  n 全不选  ←→ 调整  Enter 开始  Esc 返回",
-            self.theme.dim(),
-        ));
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(
-                    Block::bordered()
-                        .title(format!(
-                            " CDM 速度测试（{} 个盘） ",
-                            self.target_volumes().len()
-                        ))
-                        .border_style(self.theme.border()),
-                )
-                .wrap(Wrap { trim: true }),
-            area,
-        );
+        let block = Block::bordered()
+            .title(format!(
+                " CDM 速度测试（{} 个盘） ",
+                self.target_volumes().len()
+            ))
+            .border_style(self.theme.border());
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
         for index in 0..4 {
             self.record_hotspot(
                 Rect::new(
@@ -1698,16 +1712,7 @@ impl App {
             Rect::new(area.x + 1, area.y + 1 + 6, area.width.saturating_sub(2), 1),
             MouseAction::FocusSpeed(5),
         );
-        let button_y = area.y + area.height.saturating_sub(2);
-        let half = area.width / 2;
-        self.record_hotspot(
-            Rect::new(area.x, button_y, half, 1),
-            MouseAction::Key(KeyCode::Enter),
-        );
-        self.record_hotspot(
-            Rect::new(area.x + half, button_y, area.width - half, 1),
-            MouseAction::Key(KeyCode::Esc),
-        );
+        self.render_button_row(frame, chunks[1], "Enter 开始      Esc 返回");
     }
 
     fn render_speed_confirm(&self, frame: &mut Frame) {
@@ -1947,6 +1952,7 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match self.screen {
             Screen::Home => match code {
+                KeyCode::Char('c') if ctrl => return true,
                 KeyCode::Char('q') | KeyCode::Esc => return true,
                 KeyCode::Up | KeyCode::Char('k') => {
                     if self.selected > 0 {
@@ -2076,6 +2082,19 @@ impl App {
                     self.multi = None;
                 }
                 KeyCode::Char('e') => self.export_multi_report(),
+                KeyCode::Tab | KeyCode::Right => {
+                    if let Some(multi) = self.multi.as_mut() {
+                        multi.active = (multi.active + 1) % multi.tasks.len().max(1);
+                    }
+                }
+                KeyCode::BackTab | KeyCode::Left => {
+                    if let Some(multi) = self.multi.as_mut() {
+                        multi.active = multi
+                            .active
+                            .checked_sub(1)
+                            .unwrap_or_else(|| multi.tasks.len().saturating_sub(1));
+                    }
+                }
                 _ => {}
             },
             Screen::Results => {
@@ -2198,6 +2217,22 @@ impl App {
 
     fn render(&self, frame: &mut Frame) {
         self.hotspots.borrow_mut().clear();
+        let area = frame.area();
+        if area.width < 100 || area.height < 26 {
+            frame.render_widget(Clear, area);
+            frame.render_widget(
+                Paragraph::new(vec![
+                    Line::from("终端窗口过小"),
+                    Line::from("请调整到至少 100 x 26"),
+                    Line::from("当前尺寸："),
+                    Line::from(format!("{} x {}", area.width, area.height)),
+                ])
+                .alignment(ratatui::layout::Alignment::Center)
+                .block(Block::bordered().title(" 终端尺寸 ")),
+                area,
+            );
+            return;
+        }
         match self.screen {
             Screen::Home => self.render_home(frame),
             Screen::Settings => self.render_settings(frame),
@@ -2267,7 +2302,7 @@ impl App {
                                     .position(|item| item.mount_point == volume.mount_point)
                                     .unwrap_or(0) as u16
                     }) {
-                        self.theme.text()
+                        self.theme.key()
                     } else {
                         ratatui::style::Style::default()
                     },
@@ -2317,7 +2352,7 @@ impl App {
                 )),
                 Line::from(format!("Free:      {}", format_bytes(volume.free_bytes))),
                 {
-                    let health = health::read_health(&volume.mount_point);
+                    let health = self.cached_health(&volume.mount_point);
                     Line::from(format!(
                         "Temp:      {}   Health: {}",
                         health
@@ -2481,24 +2516,19 @@ impl App {
             focused(SettingsField::Export),
         ));
         lines.push(Line::from(""));
-        lines.push(Line::styled(
-            "↑↓ 选择   ←→ 切换   数字键输入圈数   Enter 确定   Esc 取消",
-            self.theme.dim(),
-        ));
-
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(
-                    Block::bordered()
-                        .title(format!(
-                            " 测试设置（{} 个盘） ",
-                            self.target_volumes().len()
-                        ))
-                        .border_style(self.theme.border()),
-                )
-                .wrap(Wrap { trim: true }),
-            area,
-        );
+        let block = Block::bordered()
+            .title(format!(
+                " 测试设置（{} 个盘） ",
+                self.target_volumes().len()
+            ))
+            .border_style(self.theme.border());
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
         let fields = [
             SettingsField::Mode,
             SettingsField::Passes,
@@ -2517,16 +2547,7 @@ impl App {
                 MouseAction::FocusSettings(*field),
             );
         }
-        let button_y = area.y + area.height.saturating_sub(2);
-        let half = area.width / 2;
-        self.record_hotspot(
-            Rect::new(area.x, button_y, half, 1),
-            MouseAction::Key(KeyCode::Enter),
-        );
-        self.record_hotspot(
-            Rect::new(area.x + half, button_y, area.width - half, 1),
-            MouseAction::Key(KeyCode::Esc),
-        );
+        self.render_button_row(frame, chunks[1], "Enter 确定      Esc 取消");
     }
 
     fn settings_line(&self, label: &str, value: String, focused: bool) -> Line<'static> {
@@ -2893,7 +2914,14 @@ impl App {
         }
     }
 
-    fn render_speed_lines(&self, frame: &mut Frame, area: Rect, series: SpeedSeries, x_max: u64) {
+    fn render_speed_lines(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        series: SpeedSeries,
+        x_max: u64,
+        title: &str,
+    ) {
         let y_max = series
             .iter()
             .flat_map(|(_, points, _)| points.iter().map(|(_, speed)| *speed))
@@ -2924,7 +2952,7 @@ impl App {
         let chart = Chart::new(datasets)
             .block(
                 Block::bordered()
-                    .title(" speed MiB/s ")
+                    .title(format!(" {title} "))
                     .border_style(self.theme.border()),
             )
             .x_axis(
@@ -2994,7 +3022,7 @@ impl App {
             .constraints([
                 Constraint::Length(3),
                 Constraint::Length(4),
-                Constraint::Length(3),
+                Constraint::Length(6),
                 Constraint::Length(3),
                 Constraint::Min(8),
                 Constraint::Length(2),
@@ -3033,6 +3061,28 @@ impl App {
         let suite = task.suite.as_ref();
         let current = suite.map(|value| value.current).unwrap_or(0);
         let preset = PRESETS.get(current).copied().unwrap_or(PRESETS[0]);
+        let selected_count = self
+            .speed
+            .values
+            .presets
+            .iter()
+            .filter(|item| **item)
+            .count();
+        let ordinal = if self
+            .speed
+            .values
+            .presets
+            .get(current)
+            .copied()
+            .unwrap_or(false)
+        {
+            self.speed.values.presets[..=current.min(3)]
+                .iter()
+                .filter(|item| **item)
+                .count()
+        } else {
+            0
+        };
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(format!(
@@ -3045,8 +3095,9 @@ impl App {
                         .unwrap_or_else(|| "unknown".to_string())
                 )),
                 Line::from(format!(
-                    "当前 {}/4  {}   文件 {}   顺序项错误继续 {}",
-                    current + 1,
+                    "当前 {}/{}  {}   文件 {}   顺序项错误继续 {}",
+                    ordinal,
+                    selected_count,
                     preset.name,
                     format_bytes(self.speed.values.file_size),
                     yes_no(self.speed.values.ignore_errors)
@@ -3096,6 +3147,37 @@ impl App {
                     self.theme.dim(),
                 ));
             }
+            let total_bytes = selected_count as u64 * 2 * self.speed.values.file_size;
+            let completed = suite.results.len() as u64 * 2 * self.speed.values.file_size;
+            let current_bytes = if suite.phase.is_some() {
+                suite.done_bytes
+            } else {
+                0
+            };
+            let overall = completed.saturating_add(current_bytes).min(total_bytes);
+            let percent = if total_bytes == 0 {
+                0.0
+            } else {
+                overall as f64 / total_bytes as f64 * 100.0
+            };
+            let elapsed = multi.started.elapsed().as_secs_f64();
+            let eta = if overall > 0 && overall < total_bytes {
+                elapsed * (total_bytes - overall) as f64 / overall as f64
+            } else {
+                0.0
+            };
+            status_lines.push(Line::styled(
+                format!(
+                    "总进度 {percent:.0}%   已用 {}   ETA {}",
+                    format_seconds(elapsed as u64),
+                    if eta > 0.0 {
+                        format_seconds(eta as u64)
+                    } else {
+                        "-".to_string()
+                    }
+                ),
+                self.theme.dim(),
+            ));
         }
         if status_lines.is_empty() {
             status_lines.push(Line::styled("准备测试文件...", self.theme.dim()));
@@ -3179,7 +3261,13 @@ impl App {
                 ratatui::style::Color::Green,
             ),
         ];
-        self.render_speed_lines(frame, layout[4], series, self.speed.values.file_size);
+        self.render_speed_lines(
+            frame,
+            layout[4],
+            series,
+            self.speed.values.file_size,
+            &format!("speed MiB/s · {}", preset.name),
+        );
 
         let speed_footer = if multi.tasks.len() > 1 {
             format!(
@@ -3443,9 +3531,9 @@ impl App {
                         };
                         lines.push(Line::styled(
                             format!(
-                                "{:<14} {:<14} {:>9.1} {:>9.1} {:>9.0} {:>9.0} {:>7}",
-                                task.label,
-                                preset.name,
+                                "{} {} {:>9.1} {:>9.1} {:>9.0} {:>9.0} {:>7}",
+                                pad_display(&task.label, 14),
+                                pad_display(preset.name, 14),
                                 item.write.write_mibps,
                                 item.read.read_mibps,
                                 item.write.write_iops,
@@ -3470,7 +3558,10 @@ impl App {
                     self.theme.success(),
                 ));
             }
-            lines.push(Line::styled("Esc 返回主页   e 导出", self.theme.dim()));
+            lines.push(Line::styled(
+                "Tab 切换盘   Esc 返回主页   e 导出",
+                self.theme.dim(),
+            ));
             let layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -3487,7 +3578,11 @@ impl App {
                 ),
                 layout[0],
             );
-            if let Some(suite) = multi.tasks.iter().find_map(|task| task.suite.as_ref()) {
+            if let Some((task, suite)) = multi
+                .tasks
+                .get(multi.active)
+                .and_then(|task| task.suite.as_ref().map(|suite| (task, suite)))
+            {
                 let graph = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
@@ -3521,7 +3616,13 @@ impl App {
                         }
                     }
                 }
-                self.render_speed_lines(frame, graph[0], series, self.speed.values.file_size);
+                self.render_speed_lines(
+                    frame,
+                    graph[0],
+                    series,
+                    self.speed.values.file_size,
+                    &format!("speed MiB/s · {}", task.label),
+                );
                 let labels = ["Q32 W", "Q32 R", "Q1 W", "Q1 R"];
                 let bars: Vec<(&str, f64)> = labels
                     .iter()
@@ -3563,14 +3664,17 @@ impl App {
             };
             lines.push(Line::styled(
                 format!(
-                    "{:<16} {:<8} {:<8} {:>8} {:>8} {:>8} {:>6}",
-                    task.label,
-                    match task.mode {
-                        RunMode::WriteVerify => "write+ver",
-                        RunMode::WriteOnly => "write",
-                        RunMode::VerifyExisting => "verify",
-                    },
-                    status.chars().take(8).collect::<String>(),
+                    "{} {} {} {:>8} {:>8} {:>8} {:>6}",
+                    pad_display(&task.label, 16),
+                    pad_display(
+                        match task.mode {
+                            RunMode::WriteVerify => "write+ver",
+                            RunMode::WriteOnly => "write",
+                            RunMode::VerifyExisting => "verify",
+                        },
+                        8
+                    ),
+                    pad_display(&status.chars().take(8).collect::<String>(), 8),
                     summary.map(|value| value.passed).unwrap_or(0),
                     summary.map(|value| value.failed).unwrap_or(0),
                     summary
@@ -3782,19 +3886,60 @@ impl App {
             .fold(0.0, f64::max)
             .max(1.0);
         let stride = (samples.len() / 600).max(1);
-        let points: Vec<(f64, f64)> = samples
-            .iter()
-            .step_by(stride)
-            .map(|sample| {
-                let x = match results.axis {
-                    Axis::Position => sample.position as f64,
-                    Axis::Time => sample.run_ms as f64,
-                };
-                (x, sample.speed_mibps)
-            })
-            .collect();
-
-        let canvas = Canvas::default()
+        let mut write_points: Vec<(f64, f64)> = Vec::new();
+        let mut verify_points: Vec<(f64, f64)> = Vec::new();
+        for sample in samples.iter().step_by(stride) {
+            let x = match results.axis {
+                Axis::Position => sample.position as f64,
+                Axis::Time => sample.run_ms as f64,
+            };
+            let point = (x, sample.speed_mibps);
+            match sample.phase {
+                Phase::Write => write_points.push(point),
+                Phase::Verify => verify_points.push(point),
+            }
+        }
+        let write_color = self
+            .theme
+            .chart_speed()
+            .fg
+            .unwrap_or_else(|| self.theme.speed_color());
+        let verify_color = self
+            .theme
+            .gauge_verify()
+            .fg
+            .unwrap_or(ratatui::style::Color::Green);
+        let mut datasets = Vec::new();
+        if !write_points.is_empty() {
+            datasets.push(
+                Dataset::default()
+                    .name("write")
+                    .marker(Marker::Braille)
+                    .graph_type(GraphType::Line)
+                    .style(ratatui::style::Style::default().fg(write_color))
+                    .data(&write_points),
+            );
+        }
+        if !verify_points.is_empty() {
+            datasets.push(
+                Dataset::default()
+                    .name("read+verify")
+                    .marker(Marker::Braille)
+                    .graph_type(GraphType::Line)
+                    .style(ratatui::style::Style::default().fg(verify_color))
+                    .data(&verify_points),
+            );
+        }
+        let x_mid = max_x / 2.0;
+        let x_end = match results.axis {
+            Axis::Position => format_axis_bytes(max_x as u64),
+            Axis::Time => format_seconds((max_x / 1000.0) as u64),
+        };
+        let x_mid_label = match results.axis {
+            Axis::Position => format_axis_bytes(x_mid as u64),
+            Axis::Time => format_seconds((x_mid / 1000.0) as u64),
+        };
+        let chart = Chart::new(datasets)
             .block(
                 Block::bordered()
                     .title(format!(
@@ -3806,21 +3951,17 @@ impl App {
                     ))
                     .border_style(self.theme.border()),
             )
-            .marker(Marker::Braille)
-            .x_bounds([0.0, max_x])
-            .y_bounds([0.0, max_y * 1.1])
-            .paint(|ctx| {
-                for pair in points.windows(2) {
-                    ctx.draw(&CanvasLine {
-                        x1: pair[0].0,
-                        y1: pair[0].1,
-                        x2: pair[1].0,
-                        y2: pair[1].1,
-                        color: self.theme.speed_color(),
-                    });
-                }
-            });
-        frame.render_widget(canvas, area);
+            .x_axis(ChartAxis::default().bounds([0.0, max_x]).labels([
+                "0".to_string(),
+                x_mid_label,
+                x_end,
+            ]))
+            .y_axis(ChartAxis::default().bounds([0.0, max_y * 1.1]).labels([
+                "0".to_string(),
+                format!("{:.0}", max_y / 2.0),
+                format!("{:.0}", max_y),
+            ]));
+        frame.render_widget(chart, area);
     }
 }
 
@@ -3857,6 +3998,21 @@ impl ResultsState {
             Err(error) => self.message = format!("export failed: {error}"),
         }
     }
+}
+
+fn display_width(text: &str) -> usize {
+    text.chars()
+        .map(|ch| if ch as u32 >= 0x2E80 { 2 } else { 1 })
+        .sum()
+}
+
+fn pad_display(text: &str, width: usize) -> String {
+    let used = display_width(text);
+    let mut result = text.to_string();
+    if used < width {
+        result.push_str(&" ".repeat(width - used));
+    }
+    result
 }
 
 fn trimmed_mean(values: &[f64]) -> f64 {
@@ -4176,6 +4332,41 @@ mod tests {
             output.push('\n');
         }
         output
+    }
+
+    #[test]
+    fn small_terminal_shows_size_guard() {
+        let app = App::new(ColorMode::Auto);
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+        terminal.draw(|frame| app.render(frame)).expect("draw");
+        let buffer = terminal.backend().buffer();
+        let mut output = String::new();
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                output.push_str(buffer[(x, y)].symbol());
+            }
+        }
+        let text = normalized(&output);
+        assert!(text.contains("终端窗口过小"));
+        assert!(text.contains("100x26"));
+    }
+
+    #[test]
+    fn speed_run_shows_total_progress_and_selected_ordinal() {
+        let mut app = app_with_multi(1);
+        app.multi.as_mut().unwrap().kind = TestKind::Speed;
+        let suite = app.multi.as_mut().unwrap().tasks[0]
+            .suite
+            .get_or_insert_with(SuiteView::default);
+        suite.current = 0;
+        suite.phase = Some(SuitePhase::Write);
+        suite.done_bytes = 512 * 1024 * 1024;
+        suite.total_bytes = 1024 * 1024 * 1024;
+        app.screen = Screen::MultiRun;
+        let text = normalized(&render_text(&app));
+        assert!(text.contains("当前1/4"));
+        assert!(text.contains("总进度"));
     }
 
     #[test]

@@ -134,9 +134,9 @@ impl Theme {
         self.apply(self.palette.accent).add_modifier(Modifier::BOLD)
     }
 
-    #[allow(dead_code)]
     pub fn key(&self) -> Style {
-        self.apply(self.palette.accent).add_modifier(Modifier::BOLD)
+        self.apply(self.palette.accent)
+            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
     }
 
     pub fn success(&self) -> Style {
