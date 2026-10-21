@@ -586,6 +586,24 @@ fn fill_pattern(buffer: &mut [u8], block: u64, seed: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preset_result_failed_flags_any_error() {
+        let mut item = PresetResult::default();
+        assert!(!item.failed());
+        item.verify_errors = 1;
+        assert!(item.failed());
+    }
+
+    #[test]
+    fn suite_result_can_hold_curve_history() {
+        let mut result = SuiteResult::default();
+        result.presets.push(PresetResult {
+            write_curve: vec![(0, 10.0), (1024, 20.0)],
+            ..PresetResult::default()
+        });
+        assert_eq!(result.presets[0].write_curve.len(), 2);
+    }
     use std::io::{Seek, SeekFrom, Write};
 
     fn temp_dir(name: &str) -> std::path::PathBuf {

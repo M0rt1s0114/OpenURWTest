@@ -222,3 +222,39 @@ pub fn write_png(
     write_quality_png(path, target, analysis, temperatures)
         .with_context(|| format!("failed to write {}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_keeps_small_series_intact() {
+        let points = vec![(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)];
+        assert_eq!(compact(&points, 2.0), points);
+    }
+
+    #[test]
+    fn compact_preserves_bucket_extremes() {
+        let mut points = Vec::new();
+        for index in 0..5000 {
+            let value = if index == 2500 { 999.0 } else { 10.0 };
+            points.push((index as f64 / 5000.0 * 100.0, value));
+        }
+        let compacted = compact(&points, 100.0);
+        assert!(compacted.len() <= 3200);
+        assert!(compacted.iter().any(|(_, value)| *value == 999.0));
+    }
+
+    #[test]
+    fn quality_file_name_uses_drive_letter() {
+        assert_eq!(
+            quality_file_name(Path::new("E:\\")),
+            "quality_speed_temperature_E.png"
+        );
+    }
+
+    #[test]
+    fn drive_suffix_falls_back_for_non_drive_paths() {
+        assert_eq!(drive_suffix(Path::new("tmp")), "T");
+    }
+}

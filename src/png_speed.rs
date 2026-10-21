@@ -12,6 +12,11 @@ const SEQ_READ_Q8: RGBColor = RGBColor(255, 127, 14);
 const SEQ_WRITE_Q1: RGBColor = RGBColor(44, 160, 44);
 const SEQ_READ_Q1: RGBColor = RGBColor(148, 103, 189);
 
+pub fn speed_file_name(target: &Path, random: bool) -> String {
+    let name = if random { "speed_rand" } else { "speed_seq" };
+    format!("{name}_{}.png", drive_suffix(target))
+}
+
 pub fn write_speed_pngs(
     directory: &Path,
     target: &Path,
@@ -22,8 +27,8 @@ pub fn write_speed_pngs(
     std::fs::create_dir_all(directory)
         .with_context(|| format!("failed to create {}", directory.display()))?;
     let mut written = Vec::new();
-    for (name, random) in [("speed_seq", false), ("speed_rand", true)] {
-        let path = directory.join(format!("{name}_{}.png", drive_suffix(target)));
+    for random in [false, true] {
+        let path = directory.join(speed_file_name(target, random));
         write_speed_png(
             &path,
             target,
@@ -194,4 +199,20 @@ fn write_speed_png(
         .map_err(draw_error)?;
     root.present().map_err(draw_error)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn speed_file_names_include_drive_and_kind() {
+        assert_eq!(speed_file_name(Path::new("E:\\"), false), "speed_seq_E.png");
+        assert_eq!(speed_file_name(Path::new("E:\\"), true), "speed_rand_E.png");
+    }
+
+    #[test]
+    fn speed_file_name_handles_relative_paths() {
+        assert_eq!(speed_file_name(Path::new("tmp"), false), "speed_seq_T.png");
+    }
 }

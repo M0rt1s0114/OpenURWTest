@@ -1,6 +1,6 @@
 [package]
 name = "urwtest-rs"
-version = "0.6.2-alpha"
+version = "0.7.0-alpha"
 edition = "2024"
 rust-version = "1.91"
 description = "Mounted-volume quality and speed test tool for Windows"

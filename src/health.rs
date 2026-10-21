@@ -264,6 +264,16 @@ mod imp {
         use super::*;
 
         #[test]
+        fn temperature_sample_keeps_elapsed_and_value() {
+            let sample = crate::health::TemperatureSample {
+                elapsed_ms: 1234,
+                temperature_c: 42,
+            };
+            assert_eq!(sample.elapsed_ms, 1234);
+            assert_eq!(sample.temperature_c, 42);
+        }
+
+        #[test]
         fn parses_temperature_descriptor() {
             let mut buffer = vec![0u8; 40];
             buffer[4..8].copy_from_slice(&24u32.to_le_bytes());
