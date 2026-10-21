@@ -8,6 +8,7 @@ mod format;
 mod health;
 mod interactive;
 mod io;
+mod json;
 mod reporter;
 mod speed;
 mod terminal;
@@ -132,7 +133,7 @@ fn real_main() -> Result<i32> {
             if args.json {
                 println!(
                     "{{\"volume\":\"{}\",\"temperature_c\":{},\"health\":\"{}\",\"disk_number\":{}}}",
-                    json_escape(&volume.mount_point.display().to_string()),
+                    json::escape(&volume.mount_point.display().to_string()),
                     health
                         .temperature_c
                         .map(|value| value.to_string())
@@ -209,22 +210,6 @@ fn summary_exit_code(summary: &Summary) -> i32 {
     0
 }
 
-fn json_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            ch if ch < ' ' => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
-            ch => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
 fn resolve_target(target: &std::path::Path) -> Result<()> {
     volume::find_volume(target)
         .map(|_| ())
@@ -284,9 +269,9 @@ mod tests {
 
     #[test]
     fn json_escape_handles_windows_paths_and_controls() {
-        assert_eq!(json_escape("C:\\"), "C:\\\\");
-        assert_eq!(json_escape("a\"b"), "a\\\"b");
-        assert_eq!(json_escape("a\nb\tc"), "a\\nb\\tc");
-        assert_eq!(json_escape("\u{0001}"), "\\u0001");
+        assert_eq!(json::escape("C:\\"), "C:\\\\");
+        assert_eq!(json::escape("a\"b"), "a\\\"b");
+        assert_eq!(json::escape("a\nb\tc"), "a\\nb\\tc");
+        assert_eq!(json::escape("\u{0001}"), "\\u0001");
     }
 }

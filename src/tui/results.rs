@@ -709,6 +709,37 @@ impl App {
                     .data(&threshold_points),
             );
         }
+        let event_points: Vec<(f64, f64)> = results
+            .analysis
+            .events
+            .iter()
+            .map(|event| {
+                let x = match results.axis {
+                    Axis::Position => {
+                        (pass_base.get(&event.pass).copied().unwrap_or(0) + event.start_position)
+                            as f64
+                    }
+                    Axis::Time => event.start_ms as f64,
+                };
+                (x, event.min_mibps)
+            })
+            .collect();
+        if !event_points.is_empty() {
+            datasets.push(
+                Dataset::default()
+                    .name("event")
+                    .marker(Marker::Dot)
+                    .graph_type(GraphType::Scatter)
+                    .style(
+                        ratatui::style::Style::default().fg(self
+                            .theme
+                            .danger()
+                            .fg
+                            .unwrap_or(ratatui::style::Color::Red)),
+                    )
+                    .data(&event_points),
+            );
+        }
         let x_mid = max_x / 2.0;
         let x_end = match results.axis {
             Axis::Position => format_axis_bytes(max_x as u64),

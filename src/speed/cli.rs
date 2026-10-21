@@ -6,6 +6,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 
 use crate::cli::SpeedArgs;
+use crate::json::escape;
 use crate::speed::suite::{PRESETS, SpeedPreset, SuiteEvent, SuiteOptions, SuiteResult, run_suite};
 
 struct TargetResult {
@@ -240,7 +241,7 @@ fn json_results(results: &[TargetResult]) -> String {
 }
 
 fn json_target(target: &TargetResult) -> String {
-    let mut output = format!("\"target\":\"{}\"", json_escape(&target.target));
+    let mut output = format!("\"target\":\"{}\"", escape(&target.target));
     match &target.result {
         Ok(result) => {
             output.push_str(&format!(
@@ -253,7 +254,7 @@ fn json_target(target: &TargetResult) -> String {
                     .unwrap_or_else(|| "null".to_string())
             ));
             if let Some(error) = &result.error {
-                output.push_str(&format!(",\"error\":\"{}\"", json_escape(error)));
+                output.push_str(&format!(",\"error\":\"{}\"", escape(error)));
             }
             let presets: Vec<String> = result
                 .presets
@@ -279,26 +280,10 @@ fn json_target(target: &TargetResult) -> String {
             output.push_str(&format!(",\"presets\":[{}]", presets.join(",")));
         }
         Err(error) => {
-            output.push_str(&format!(",\"error\":\"{}\"", json_escape(error)));
+            output.push_str(&format!(",\"error\":\"{}\"", escape(error)));
         }
     }
     format!("{{{output}}}")
-}
-
-fn json_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            ch if ch < ' ' => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
-            ch => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 pub fn parse_size(value: &str) -> Result<u64> {
