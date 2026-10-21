@@ -845,9 +845,7 @@ impl App {
             && !summary.device_lost;
         let mut message = String::new();
         if auto_export {
-            let directory = std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join("urwtest-export");
+            let directory = export_directory();
             let input = ExportInput {
                 target: &target,
                 summary: &summary,
@@ -1658,10 +1656,7 @@ impl App {
                 })
                 .collect()
         };
-        let directory = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("urwtest-export")
-            .join("multi");
+        let directory = export_directory().join("multi");
         multi.export_message = match export::export_multi(&directory, kind, &rows) {
             Ok(files) => format!(
                 "exported {} file(s) to {}",
@@ -3584,6 +3579,10 @@ impl App {
                 ));
             }
             lines.push(Line::styled(
+                "4K 柱为去掉最高/最低值的平均数；表格为原始平均值。",
+                self.theme.dim(),
+            ));
+            lines.push(Line::styled(
                 "Tab 切换盘   Esc 返回主页   e 导出",
                 self.theme.dim(),
             ));
@@ -4003,9 +4002,7 @@ impl ResultsState {
     }
 
     fn export(&mut self) {
-        let directory = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("urwtest-export");
+        let directory = export_directory();
         let input = ExportInput {
             target: &self.target,
             summary: &self.summary,
@@ -4023,6 +4020,17 @@ impl ResultsState {
             Err(error) => self.message = format!("export failed: {error}"),
         }
     }
+}
+
+fn export_directory() -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("urwtest-export")
+        .join(stamp.to_string())
 }
 
 fn display_width(text: &str) -> usize {
