@@ -617,6 +617,7 @@ struct App {
     results: Option<ResultsState>,
     export_rx: Option<mpsc::Receiver<String>>,
     multi_export_rx: Option<mpsc::Receiver<String>>,
+    analysis_rx: Option<mpsc::Receiver<crate::analysis::Analysis>>,
     cancel_pending: bool,
 }
 
@@ -654,6 +655,7 @@ impl App {
             results: None,
             export_rx: None,
             multi_export_rx: None,
+            analysis_rx: None,
             cancel_pending: false,
         }
     }
@@ -852,8 +854,37 @@ impl App {
                 Err(mpsc::TryRecvError::Disconnected) => {}
             }
         }
+        if let Some(rx) = self.analysis_rx.take() {
+            match rx.try_recv() {
+                Ok(analysis) => {
+                    if let Some(results) = self.results.as_mut() {
+                        results.analysis = analysis;
+                        results.message = "thresholds recalculated".to_string();
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => self.analysis_rx = Some(rx),
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
         if self.screen == Screen::MultiRun || self.multi.is_some() {
             self.tick_multi();
+        }
+    }
+
+    fn refresh_results_async(&mut self) {
+        let Some(results) = &self.results else {
+            return;
+        };
+        let summary = results.summary.clone();
+        let params = results.params;
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let analysis = analysis::analyze(&summary.trace, &params);
+            let _ = tx.send(analysis);
+        });
+        self.analysis_rx = Some(rx);
+        if let Some(results) = self.results.as_mut() {
+            results.message = "recalculating thresholds...".to_string();
         }
     }
 
@@ -2115,48 +2146,56 @@ impl App {
                 _ => {}
             },
             Screen::Results => {
-                let Some(results) = self.results.as_mut() else {
-                    return false;
-                };
-                match code {
-                    KeyCode::Esc | KeyCode::Char('q') => {
-                        self.screen = Screen::Home;
-                        self.results = None;
-                        self.rescan();
-                    }
-                    KeyCode::Char('x') => results.axis = results.axis.toggle(),
-                    KeyCode::Char('t') => {
-                        results.params.mode = match results.params.mode {
-                            ThresholdMode::Percent => ThresholdMode::Absolute,
-                            ThresholdMode::Absolute => ThresholdMode::Percent,
-                        };
-                        results.refresh();
-                    }
-                    KeyCode::Char('[') => {
-                        match results.params.mode {
-                            ThresholdMode::Percent => {
-                                results.params.percent = (results.params.percent - 5.0).max(10.0)
-                            }
-                            ThresholdMode::Absolute => {
-                                results.params.absolute_mibps =
-                                    (results.params.absolute_mibps - 10.0).max(0.0)
-                            }
+                let mut refresh = false;
+                {
+                    let Some(results) = self.results.as_mut() else {
+                        return false;
+                    };
+                    match code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            self.screen = Screen::Home;
+                            self.results = None;
+                            self.rescan();
                         }
-                        results.refresh();
-                    }
-                    KeyCode::Char(']') => {
-                        match results.params.mode {
-                            ThresholdMode::Percent => {
-                                results.params.percent = (results.params.percent + 5.0).min(100.0)
-                            }
-                            ThresholdMode::Absolute => results.params.absolute_mibps += 10.0,
+                        KeyCode::Char('x') => results.axis = results.axis.toggle(),
+                        KeyCode::Char('t') => {
+                            results.params.mode = match results.params.mode {
+                                ThresholdMode::Percent => ThresholdMode::Absolute,
+                                ThresholdMode::Absolute => ThresholdMode::Percent,
+                            };
+                            refresh = true;
                         }
-                        results.refresh();
+                        KeyCode::Char('[') => {
+                            match results.params.mode {
+                                ThresholdMode::Percent => {
+                                    results.params.percent =
+                                        (results.params.percent - 5.0).max(10.0)
+                                }
+                                ThresholdMode::Absolute => {
+                                    results.params.absolute_mibps =
+                                        (results.params.absolute_mibps - 10.0).max(0.0)
+                                }
+                            }
+                            refresh = true;
+                        }
+                        KeyCode::Char(']') => {
+                            match results.params.mode {
+                                ThresholdMode::Percent => {
+                                    results.params.percent =
+                                        (results.params.percent + 5.0).min(100.0)
+                                }
+                                ThresholdMode::Absolute => results.params.absolute_mibps += 10.0,
+                            }
+                            refresh = true;
+                        }
+                        KeyCode::Char('e') => {
+                            results.export();
+                        }
+                        _ => {}
                     }
-                    KeyCode::Char('e') => {
-                        results.export();
-                    }
-                    _ => {}
+                }
+                if refresh {
+                    self.refresh_results_async();
                 }
             }
         }
@@ -2266,10 +2305,6 @@ impl App {
 }
 
 impl ResultsState {
-    fn refresh(&mut self) {
-        self.analysis = analysis::analyze(&self.summary.trace, &self.params);
-    }
-
     fn mode_label(&self) -> String {
         match self.params.mode {
             ThresholdMode::Percent => format!("percent {:.0}%", self.params.percent),
