@@ -51,6 +51,7 @@ mod imp {
     const GENERIC_WRITE: u32 = 0x4000_0000;
     const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002D_1400;
     const SMART_RCV_DRIVE_DATA: u32 = 0x0007_C088;
+    const IOCTL_STORAGE_PREDICT_FAILURE: u32 = 0x002D_1100;
     const IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: u32 = 0x0056_0000;
     const STORAGE_DEVICE_TEMPERATURE_PROPERTY: u32 = 52;
 
@@ -104,6 +105,7 @@ mod imp {
                 temperature = query_temperature(physical, STORAGE_DEVICE_TEMPERATURE_PROPERTY)
                     .or_else(|| query_temperature(physical, 51));
             }
+            let mut smart_warning = false;
             if let Some(smart) = query_smart(physical) {
                 health.smart_checked = true;
                 if health.temperature_c.is_none()
@@ -111,9 +113,16 @@ mod imp {
                 {
                     health.temperature_c = Some(value);
                 }
-                if smart.warning {
-                    health.status = HealthStatus::Warning;
-                }
+                smart_warning = smart.warning;
+            }
+            if !health.smart_checked
+                && let Some(predict_failure) = query_predict_failure(physical)
+            {
+                health.smart_checked = true;
+                smart_warning |= predict_failure;
+            }
+            if smart_warning {
+                health.status = HealthStatus::Warning;
             }
             unsafe {
                 CloseHandle(physical);
@@ -234,6 +243,27 @@ mod imp {
             )
         };
         (!handle.is_null() && handle as isize != -1).then_some(handle)
+    }
+
+    fn query_predict_failure(handle: *mut c_void) -> Option<bool> {
+        let mut output = vec![0u8; 516];
+        let mut returned = 0u32;
+        let ok = unsafe {
+            DeviceIoControl(
+                handle,
+                IOCTL_STORAGE_PREDICT_FAILURE,
+                std::ptr::null(),
+                0,
+                output.as_mut_ptr() as *mut c_void,
+                output.len() as u32,
+                &mut returned,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 || returned < 4 {
+            return None;
+        }
+        Some(u32::from_le_bytes([output[0], output[1], output[2], output[3]]) != 0)
     }
 
     fn query_smart(handle: *mut c_void) -> Option<SmartInfo> {
