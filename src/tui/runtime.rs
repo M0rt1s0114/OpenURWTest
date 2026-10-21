@@ -1033,31 +1033,42 @@ impl App {
             let thread_pause = pause.clone();
             let presets = presets.clone();
             let health = self.cached_health(&volume.mount_point);
+            let panic_tx = tx.clone();
             thread::spawn(move || {
-                let options = SuiteOptions {
-                    file_size: settings.file_size,
-                    ignore_sequential_errors: settings.ignore_errors,
-                    seed: 0x5EED_1234_ABCD_0001,
-                    pause: Some(thread_pause),
-                };
-                let tx_events = tx.clone();
-                let result = run_suite(
-                    &thread_target,
-                    &presets,
-                    options,
-                    token_for_thread.flag(),
-                    &mut |event| {
-                        let _ = tx_events.send((index, TuiEvent::Suite(Box::new(event))));
-                    },
-                );
-                let _ = std::fs::remove_file(thread_target.join("BENCH0001.DAT"));
-                match result {
-                    Ok(result) => {
-                        let _ = tx.send((index, TuiEvent::SuiteFinished(Box::new(result))));
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let options = SuiteOptions {
+                        file_size: settings.file_size,
+                        ignore_sequential_errors: settings.ignore_errors,
+                        seed: 0x5EED_1234_ABCD_0001,
+                        pause: Some(thread_pause),
+                    };
+                    let tx_events = tx.clone();
+                    let result = run_suite(
+                        &thread_target,
+                        &presets,
+                        options,
+                        token_for_thread.flag(),
+                        &mut |event| {
+                            let _ = tx_events.send((index, TuiEvent::Suite(Box::new(event))));
+                        },
+                    );
+                    let _ = std::fs::remove_file(thread_target.join("BENCH0001.DAT"));
+                    match result {
+                        Ok(result) => {
+                            let _ = tx.send((index, TuiEvent::SuiteFinished(Box::new(result))));
+                        }
+                        Err(error) => {
+                            let _ = tx.send((index, TuiEvent::Failed(format!("{error:#}"))));
+                        }
                     }
-                    Err(error) => {
-                        let _ = tx.send((index, TuiEvent::Failed(format!("{error:#}"))));
-                    }
+                }));
+                if outcome.is_err() {
+                    let _ = panic_tx.send((
+                        index,
+                        TuiEvent::Failed(
+                            "speed worker panicked; benchmark file may remain".to_string(),
+                        ),
+                    ));
                 }
             });
             tasks.push(MultiTask {

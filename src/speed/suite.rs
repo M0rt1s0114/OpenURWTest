@@ -385,7 +385,7 @@ fn run_phase(
     let mut next_temperature = Instant::now();
     let mut paused_total = Duration::ZERO;
     loop {
-        if pause.is_some_and(PauseToken::is_paused) {
+        if pause.is_some_and(PauseToken::is_paused) && !cancel.load(Ordering::SeqCst) {
             let started = Instant::now();
             thread::sleep(Duration::from_millis(20));
             paused_total += started.elapsed();
