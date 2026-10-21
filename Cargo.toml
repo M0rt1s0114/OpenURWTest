@@ -1,0 +1,17 @@
+[package]
+name = "urwtest-rs"
+version = "0.4.1-alpha"
+edition = "2024"
+description = "Mounted-volume quality and speed test tool for Windows"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/M0rt1s0114/OpenURWTest"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+crossterm = "0.29.0"
+ctrlc = "3.4"
+libc = "0.2.189"
+ratatui = "0.30.2"
+rust_xlsxwriter = "0.101.0"

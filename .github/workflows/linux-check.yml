@@ -1,0 +1,36 @@
+name: Linux Check
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-linux:
+    name: Check Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2.9.2
+
+      - name: Check
+        run: cargo check --all-targets --target x86_64-unknown-linux-gnu
+
+      - name: Test
+        run: cargo test --release --target x86_64-unknown-linux-gnu
