@@ -1164,8 +1164,8 @@ impl App {
             self.speed.focus == 4,
         ));
         lines.push(self.settings_line(
-            "顺序项错误继续",
-            format!("◀ {} ▶", yes_no(values.ignore_errors)),
+            "错误中断",
+            format!("◀ {} ▶", yes_no(!values.ignore_errors)),
             self.speed.focus == 5,
         ));
         lines.push(Line::from(""));

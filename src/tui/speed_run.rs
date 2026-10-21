@@ -198,12 +198,12 @@ impl App {
                         .unwrap_or_else(|| "unknown".to_string())
                 )),
                 Line::from(format!(
-                    "当前 {}/{}  {}   文件 {}   顺序项错误继续 {}",
+                    "当前 {}/{}  {}   文件 {}   错误中断 {}",
                     ordinal,
                     selected_count,
                     preset.name,
                     format_bytes(self.speed.values.file_size),
-                    yes_no(self.speed.values.ignore_errors)
+                    yes_no(!self.speed.values.ignore_errors)
                 )),
             ])
             .block(Block::bordered().border_style(self.theme.border())),
