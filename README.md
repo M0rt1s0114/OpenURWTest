@@ -107,6 +107,8 @@ The speed test follows CrystalDiskMark's four presets:
 
 The settings dialog is a multi-select list, so one run can execute several presets in order. All four are selected by default. The test file size defaults to **4 GiB** and can be set to 1, 2, 4, or 8 GiB.
 
+Q8 and Q32 are implemented as 8 or 32 synchronous QD1 worker lanes, not as a single-thread native asynchronous queue. Use the numbers for relative comparison; they are not directly interchangeable with CrystalDiskMark's queue model.
+
 Every selected preset is a complete write-then-read flow:
 
 1. the whole file is written (measured);

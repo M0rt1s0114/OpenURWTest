@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -38,10 +38,10 @@ jobs:
         uses: Swatinem/rust-cache@v2.9.2
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
 
       - name: Test
-        run: cargo test --release --target ${{ matrix.target }}
+        run: cargo test --locked --release --target ${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -54,6 +54,8 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Download artifacts
@@ -62,10 +64,16 @@ jobs:
           path: release
           merge-multiple: true
 
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum urwtest-rs.exe urwtest-rs > SHA256SUMS.txt
+
       - name: Publish release
         uses: softprops/action-gh-release@v3.0.3
         with:
           files: |
             release/urwtest-rs.exe
             release/urwtest-rs
+            release/SHA256SUMS.txt
           generate_release_notes: true

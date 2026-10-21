@@ -21,9 +21,8 @@ impl AlignedBlock {
     pub fn new(len: usize) -> Self {
         let layout = std::alloc::Layout::from_size_align(len, BUFFER_ALIGNMENT)
             .expect("invalid block layout");
-        // SAFETY: the layout is non-zero, so the allocation cannot fail with a
-        // zero-sized request; a null result is reported by aborting.
-        let ptr = unsafe { std::alloc::alloc(layout) };
+        // SAFETY: the layout is non-zero; zeroed allocation is defined for this layout.
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
         let ptr = std::ptr::NonNull::new(ptr).expect("failed to allocate I/O buffer");
         Self { ptr, len }
     }

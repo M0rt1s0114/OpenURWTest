@@ -462,7 +462,8 @@ fn verify_pass(
                     break;
                 }
                 prng.skip_block();
-                let _ = reader.seek(SeekFrom::Current(BLOCK_SIZE as i64));
+                let in_file = block % BLOCKS_PER_FILE;
+                let _ = reader.seek(SeekFrom::Start((in_file + 1) * BLOCK_SIZE));
             }
         }
 

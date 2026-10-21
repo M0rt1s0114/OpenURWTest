@@ -109,7 +109,15 @@ impl Reporter for LineReporter<'_> {
 
     fn error(&mut self, error: &ErrorInfo<'_>) {
         if self.errors_reported < MAX_REPORTED_ERRORS {
-            self.console.fail(error.message);
+            let offset = error.block.saturating_mul(crate::format::BLOCK_SIZE);
+            self.console.fail(&format!(
+                "{} error at pass {} block {} ({}): {}",
+                error.phase.label(),
+                error.pass,
+                error.block,
+                format_bytes(offset),
+                error.message
+            ));
             self.errors_reported += 1;
         } else {
             self.errors_suppressed += 1;

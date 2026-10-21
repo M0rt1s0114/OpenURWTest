@@ -266,9 +266,11 @@ impl Reporter for ChannelReporter {
     }
     fn error(&mut self, error: &ErrorInfo<'_>) {
         self.send(TuiEvent::Error(format!(
-            "{} error at {} MiB ({})",
+            "{} error at pass {} block {} ({}): {}",
             error.phase.label(),
+            error.pass,
             error.block,
+            format_bytes(error.block.saturating_mul(format::BLOCK_SIZE)),
             error.message
         )));
     }
@@ -466,6 +468,16 @@ impl TaskStatus {
             Self::Cancelled => "已停止",
         }
     }
+
+    fn code(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
 }
 
 struct MultiTask {
@@ -571,9 +583,11 @@ impl Reporter for MultiReporter {
     }
     fn error(&mut self, error: &ErrorInfo<'_>) {
         self.send(TuiEvent::Error(format!(
-            "{} error at {} MiB ({})",
+            "{} error at pass {} block {} ({}): {}",
             error.phase.label(),
+            error.pass,
             error.block,
+            format_bytes(error.block.saturating_mul(format::BLOCK_SIZE)),
             error.message
         )));
     }
@@ -831,9 +845,7 @@ impl App {
             && !summary.device_lost;
         let mut message = String::new();
         if auto_export {
-            let directory = std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join("urwtest-export");
+            let directory = export_directory();
             let input = ExportInput {
                 target: &target,
                 summary: &summary,
@@ -1122,9 +1134,16 @@ impl App {
                         ));
                     }
                     TuiEvent::Finished(summary) => {
+                        let failed = summary.failed > 0
+                            || summary.error_pass.is_some()
+                            || summary.data_errors > 0
+                            || summary.read_errors > 0
+                            || summary.write_errors > 0;
                         task.summary = Some(*summary);
                         task.status = if task.cancel_requested {
                             TaskStatus::Cancelled
+                        } else if failed {
+                            TaskStatus::Failed
                         } else {
                             TaskStatus::Done
                         };
@@ -1578,7 +1597,11 @@ impl App {
                         rows.push(MultiReportRow {
                             target: task.label.clone(),
                             mode: preset.name.to_string(),
-                            status: task.status.label().to_string(),
+                            status: if item.failed() {
+                                "failed".to_string()
+                            } else {
+                                task.status.code().to_string()
+                            },
                             passes: 1,
                             passed: u32::from(!item.failed()),
                             failed: u32::from(item.failed()),
@@ -1613,7 +1636,7 @@ impl App {
                             RunMode::WriteOnly => "write".to_string(),
                             RunMode::VerifyExisting => "verify".to_string(),
                         },
-                        status: task.status.label().to_string(),
+                        status: task.status.code().to_string(),
                         passes: summary.map(|value| value.passes).unwrap_or(0),
                         passed: summary.map(|value| value.passed).unwrap_or(0),
                         failed: summary.map(|value| value.failed).unwrap_or(0),
@@ -1633,10 +1656,7 @@ impl App {
                 })
                 .collect()
         };
-        let directory = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("urwtest-export")
-            .join("multi");
+        let directory = export_directory().join("multi");
         multi.export_message = match export::export_multi(&directory, kind, &rows) {
             Ok(files) => format!(
                 "exported {} file(s) to {}",
@@ -3559,6 +3579,10 @@ impl App {
                 ));
             }
             lines.push(Line::styled(
+                "4K 柱为去掉最高/最低值的平均数；表格为原始平均值。",
+                self.theme.dim(),
+            ));
+            lines.push(Line::styled(
                 "Tab 切换盘   Esc 返回主页   e 导出",
                 self.theme.dim(),
             ));
@@ -3978,9 +4002,7 @@ impl ResultsState {
     }
 
     fn export(&mut self) {
-        let directory = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("urwtest-export");
+        let directory = export_directory();
         let input = ExportInput {
             target: &self.target,
             summary: &self.summary,
@@ -3998,6 +4020,17 @@ impl ResultsState {
             Err(error) => self.message = format!("export failed: {error}"),
         }
     }
+}
+
+fn export_directory() -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("urwtest-export")
+        .join(stamp.to_string())
 }
 
 fn display_width(text: &str) -> usize {
