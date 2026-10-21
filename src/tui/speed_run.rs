@@ -73,6 +73,16 @@ impl App {
             .max(1.0)
             * 1.2;
         let len = bars.len().max(1);
+        let write_color = self
+            .theme
+            .gauge_write()
+            .fg
+            .unwrap_or_else(|| self.theme.speed_color());
+        let verify_color = self
+            .theme
+            .gauge_verify()
+            .fg
+            .unwrap_or_else(|| self.theme.speed_color());
         let chart = Canvas::default()
             .block(
                 Block::bordered()
@@ -93,9 +103,9 @@ impl App {
                         width: 0.8,
                         height: value.max(0.0),
                         color: if index % 2 == 0 {
-                            ratatui::style::Color::Blue
+                            write_color
                         } else {
-                            ratatui::style::Color::Green
+                            verify_color
                         },
                     });
                     context.print(
@@ -330,8 +340,13 @@ impl App {
                 layout[3].height.saturating_sub(2),
             );
             frame.render_widget(
-                Block::default()
-                    .style(ratatui::style::Style::default().bg(ratatui::style::Color::Red)),
+                Block::default().style(
+                    ratatui::style::Style::default().bg(self
+                        .theme
+                        .danger()
+                        .fg
+                        .unwrap_or(ratatui::style::Color::Red)),
+                ),
                 marker,
             );
         }
@@ -343,7 +358,10 @@ impl App {
                     .and_then(|view| view.write_curves.get(current))
                     .cloned()
                     .unwrap_or_default(),
-                ratatui::style::Color::Blue,
+                self.theme
+                    .chart_speed()
+                    .fg
+                    .unwrap_or_else(|| self.theme.speed_color()),
             ),
             (
                 "read".to_string(),
@@ -351,7 +369,10 @@ impl App {
                     .and_then(|view| view.read_curves.get(current))
                     .cloned()
                     .unwrap_or_default(),
-                ratatui::style::Color::Green,
+                self.theme
+                    .gauge_verify()
+                    .fg
+                    .unwrap_or_else(|| self.theme.speed_color()),
             ),
         ];
         self.render_speed_lines(

@@ -160,25 +160,26 @@ impl App {
         ))
         .style(self.theme.dim());
         let targets = self.target_volumes();
+        let target_list = targets
+            .iter()
+            .map(|volume| volume.mount_point.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         let summary = format!(
-            "当前: {}   已选: {} 个盘   目标: {} 个盘",
+            "当前: {}   已选: {} 个盘   目标: {} 个盘 [{}]",
             self.selected_volume()
                 .map(|volume| volume.display_name())
                 .unwrap_or_else(|| "-".to_string()),
             self.checked.len(),
-            targets.len()
+            targets.len(),
+            target_list
         );
-        let (mode_code, mode_color) = if self.kind == TestKind::Quality {
-            ("QC", ratatui::style::Color::Green)
+        let (mode_code, mode_style) = if self.kind == TestKind::Quality {
+            ("QC", self.theme.success())
         } else {
-            ("SC", ratatui::style::Color::Blue)
+            ("SC", self.theme.key())
         };
-        let mode_badge = Span::styled(
-            format!("[{mode_code}] {}", self.kind.label()),
-            ratatui::style::Style::default()
-                .fg(mode_color)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        );
+        let mode_badge = Span::styled(format!("[{mode_code}] {}", self.kind.label()), mode_style);
         let footer = Layout::default()
             .direction(Direction::Vertical)
             .constraints([

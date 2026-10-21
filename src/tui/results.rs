@@ -262,7 +262,7 @@ impl App {
                 self.theme.dim(),
             ));
             lines.push(Line::styled(
-                "Tab 切换盘   Esc 返回主页   e 导出",
+                "Tab 切换盘  ↑↓/PgUp/PgDn 滚动   Esc 返回主页   e 导出",
                 self.theme.dim(),
             ));
             let layout = Layout::default()
@@ -274,11 +274,13 @@ impl App {
                 ])
                 .split(area);
             frame.render_widget(
-                Paragraph::new(lines).block(
-                    Block::bordered()
-                        .title(" CDM 速度测试结果 ")
-                        .border_style(self.theme.border()),
-                ),
+                Paragraph::new(lines)
+                    .block(
+                        Block::bordered()
+                            .title(" CDM 速度测试结果 ")
+                            .border_style(self.theme.border()),
+                    )
+                    .scroll((multi.results_scroll as u16, 0)),
                 layout[0],
             );
             if let Some((task, suite)) = multi
@@ -290,32 +292,26 @@ impl App {
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
                     .split(layout[1]);
+                let write_color = self
+                    .theme
+                    .chart_speed()
+                    .fg
+                    .unwrap_or_else(|| self.theme.speed_color());
+                let verify_color = self
+                    .theme
+                    .gauge_verify()
+                    .fg
+                    .unwrap_or_else(|| self.theme.speed_color());
                 let mut series = Vec::new();
                 for (index, preset) in PRESETS.iter().enumerate().take(2) {
                     if index == 0 || index == 1 {
                         let write = suite.write_curves.get(index).cloned().unwrap_or_default();
                         if !write.is_empty() {
-                            series.push((
-                                format!("{} write", preset.name),
-                                write,
-                                if index == 0 {
-                                    ratatui::style::Color::Blue
-                                } else {
-                                    ratatui::style::Color::LightBlue
-                                },
-                            ));
+                            series.push((format!("{} write", preset.name), write, write_color));
                         }
                         let read = suite.read_curves.get(index).cloned().unwrap_or_default();
                         if !read.is_empty() {
-                            series.push((
-                                format!("{} read", preset.name),
-                                read,
-                                if index == 0 {
-                                    ratatui::style::Color::Green
-                                } else {
-                                    ratatui::style::Color::Yellow
-                                },
-                            ));
+                            series.push((format!("{} read", preset.name), read, verify_color));
                         }
                     }
                 }
@@ -407,13 +403,18 @@ impl App {
                 self.theme.success(),
             ));
         }
-        lines.push(Line::styled("Esc 返回主页   e 导出", self.theme.dim()));
+        lines.push(Line::styled(
+            "↑↓/PgUp/PgDn 滚动   Esc 返回主页   e 导出",
+            self.theme.dim(),
+        ));
         frame.render_widget(
-            Paragraph::new(lines).block(
-                Block::bordered()
-                    .title(" 多盘结果 ")
-                    .border_style(self.theme.border()),
-            ),
+            Paragraph::new(lines)
+                .block(
+                    Block::bordered()
+                        .title(" 多盘结果 ")
+                        .border_style(self.theme.border()),
+                )
+                .scroll((multi.results_scroll as u16, 0)),
             area,
         );
     }
@@ -575,12 +576,32 @@ impl App {
             );
             return;
         }
+        let mut pass_base = std::collections::BTreeMap::new();
+        if results.axis == Axis::Position {
+            let mut base = 0u64;
+            let mut passes: Vec<u32> = samples.iter().map(|sample| sample.pass).collect();
+            passes.sort_unstable();
+            passes.dedup();
+            for pass in passes {
+                let max = samples
+                    .iter()
+                    .filter(|sample| sample.pass == pass)
+                    .map(|sample| sample.position)
+                    .max()
+                    .unwrap_or(0);
+                pass_base.insert(pass, base);
+                base = base.saturating_add(max).saturating_add(1);
+            }
+        }
+        let x_of = |sample: &crate::analysis::SpeedSample| match results.axis {
+            Axis::Position => {
+                (pass_base.get(&sample.pass).copied().unwrap_or(0) + sample.position) as f64
+            }
+            Axis::Time => sample.run_ms as f64,
+        };
         let max_x = samples
             .iter()
-            .map(|sample| match results.axis {
-                Axis::Position => sample.position as f64,
-                Axis::Time => sample.run_ms as f64,
-            })
+            .map(|sample| x_of(sample))
             .fold(0.0, f64::max)
             .max(1.0);
         let max_y = samples
@@ -593,17 +614,28 @@ impl App {
         let mut verify_points: Vec<(f64, f64)> = Vec::new();
         let mut baseline_points: Vec<(f64, f64)> = Vec::new();
         let mut threshold_points: Vec<(f64, f64)> = Vec::new();
-        for sample in samples.iter().step_by(stride) {
-            let x = match results.axis {
-                Axis::Position => sample.position as f64,
-                Axis::Time => sample.run_ms as f64,
-            };
-            baseline_points.push((x, sample.baseline_mibps));
-            threshold_points.push((x, sample.threshold_mibps));
-            let point = (x, sample.speed_mibps);
-            match sample.phase {
-                Phase::Write => write_points.push(point),
-                Phase::Verify => verify_points.push(point),
+        for chunk in samples.chunks(stride) {
+            let mut min = chunk[0];
+            let mut max = chunk[0];
+            for sample in chunk {
+                if sample.speed_mibps < min.speed_mibps {
+                    min = sample;
+                }
+                if sample.speed_mibps > max.speed_mibps {
+                    max = sample;
+                }
+            }
+            let mut picks = [min, max];
+            picks.sort_by(|a, b| x_of(a).total_cmp(&x_of(b)));
+            for sample in picks {
+                let x = x_of(sample);
+                baseline_points.push((x, sample.baseline_mibps));
+                threshold_points.push((x, sample.threshold_mibps));
+                let point = (x, sample.speed_mibps);
+                match sample.phase {
+                    Phase::Write => write_points.push(point),
+                    Phase::Verify => verify_points.push(point),
+                }
             }
         }
         let write_color = self
