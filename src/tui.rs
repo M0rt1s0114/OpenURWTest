@@ -56,6 +56,21 @@ use crate::volume::{self, VolumeInfo};
 
 type SpeedSeries = Vec<(String, Vec<(u64, f64)>, ratatui::style::Color)>;
 
+fn completion_notification(title: &str) {
+    let _ = title;
+    #[cfg(not(test))]
+    {
+        use std::io::Write;
+        let mut out = std::io::stdout();
+        let _ = out.write_all(b"\x07");
+        let _ = out.flush();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::SetTitle(title.to_string())
+        );
+    }
+}
+
 const APP_NAME: &str = "OpenURWTest";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

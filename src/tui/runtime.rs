@@ -304,6 +304,11 @@ impl App {
             message,
         });
         self.screen = Screen::Results;
+        completion_notification(if success {
+            "OpenURWTest - QC 完成"
+        } else {
+            "OpenURWTest - QC 有错误"
+        });
         self.run = None;
     }
 
