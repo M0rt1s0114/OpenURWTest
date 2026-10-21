@@ -574,6 +574,7 @@ struct MultiRun {
     export_message: String,
     auto_export: bool,
     exported: bool,
+    notified: bool,
     results_scroll: usize,
 }
 

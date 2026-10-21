@@ -519,6 +519,7 @@ impl App {
             export_message: String::new(),
             auto_export: settings.auto_export,
             exported: false,
+            notified: false,
             results_scroll: 0,
         });
         self.screen = Screen::MultiRun;
@@ -756,6 +757,20 @@ impl App {
             finished_all = multi.all_done();
         }
         if finished_all {
+            if let Some(multi) = self.multi.as_mut()
+                && !multi.notified
+            {
+                multi.notified = true;
+                let success = multi
+                    .tasks
+                    .iter()
+                    .all(|task| task.status == TaskStatus::Done && task.error.is_none());
+                completion_notification(if success {
+                    "OpenURWTest - 多盘完成"
+                } else {
+                    "OpenURWTest - 多盘有错误"
+                });
+            }
             self.maybe_auto_export_multi();
             self.screen = Screen::MultiResults;
         }
@@ -1011,6 +1026,7 @@ impl App {
             export_message: String::new(),
             auto_export: true,
             exported: false,
+            notified: false,
             results_scroll: 0,
         });
         self.screen = Screen::MultiRun;
