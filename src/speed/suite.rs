@@ -210,6 +210,9 @@ pub fn run_suite(
                 break;
             }
         };
+        result
+            .temperature_points
+            .extend(write.temperature.iter().copied());
         let mut item = PresetResult {
             preset_index: index,
             write: write.metrics,
@@ -249,6 +252,9 @@ pub fn run_suite(
                 break;
             }
         };
+        result
+            .temperature_points
+            .extend(read.temperature.iter().copied());
         item.read = read.metrics;
         item.read_curve = read.curve.clone();
         item.read_errors = read.read_errors;
@@ -290,6 +296,7 @@ fn catalog_index(preset: &SpeedPreset) -> usize {
 struct PhaseOutcome {
     metrics: MetricsSnapshot,
     curve: Vec<(u64, f64)>,
+    temperature: Vec<(u64, i32)>,
     write_errors: u64,
     read_errors: u64,
     verify_errors: u64,
@@ -357,6 +364,8 @@ fn run_phase(
     let mut errors_logged = 0u64;
     let mut first_error = None;
     let mut curve: Vec<(u64, f64)> = Vec::new();
+    let mut temperature: Vec<(u64, i32)> = Vec::new();
+    let mut next_temperature = Instant::now();
     loop {
         let finished = handles.iter().all(|handle| handle.is_finished());
         while let Ok(error) = error_rx.try_recv() {
@@ -386,6 +395,12 @@ fn run_phase(
                 mibps,
             });
             curve.push((bytes, mibps));
+            if next_temperature.elapsed() >= Duration::from_secs(30)
+                && let Some(value) = health::read_health(path).temperature_c
+            {
+                temperature.push((bytes, value));
+                next_temperature = Instant::now();
+            }
             last = now;
             last_bytes = bytes;
         }
@@ -429,6 +444,7 @@ fn run_phase(
     Ok(PhaseOutcome {
         metrics,
         curve,
+        temperature,
         write_errors,
         read_errors,
         verify_errors,
