@@ -19,6 +19,7 @@ pub struct AlignedBlock {
 
 impl AlignedBlock {
     pub fn new(len: usize) -> Self {
+        assert!(len > 0, "aligned block must be non-empty");
         let layout = std::alloc::Layout::from_size_align(len, BUFFER_ALIGNMENT)
             .expect("invalid block layout");
         // SAFETY: the layout is non-zero; zeroed allocation is defined for this layout.
@@ -99,5 +100,11 @@ mod tests {
         block.as_mut_slice()[1024 * 1024 - 1] = 0x55;
         assert_eq!(block.as_slice()[0], 0xAA);
         assert_eq!(block.as_slice()[1024 * 1024 - 1], 0x55);
+    }
+
+    #[test]
+    #[should_panic(expected = "aligned block must be non-empty")]
+    fn aligned_block_rejects_zero_length() {
+        let _ = AlignedBlock::new(0);
     }
 }
