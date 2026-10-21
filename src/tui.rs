@@ -620,7 +620,7 @@ struct App {
     checked: std::collections::BTreeSet<PathBuf>,
     kind: TestKind,
     speed: SpeedState,
-    speed_system_armed: bool,
+    system_confirm_input: String,
     hotspots: RefCell<Vec<Hotspot>>,
     mouse_hover: Option<Rect>,
     animation_epoch: Instant,
@@ -648,7 +648,7 @@ impl App {
                 values: SpeedSettings::default(),
                 focus: 0,
             },
-            speed_system_armed: false,
+            system_confirm_input: String::new(),
             hotspots: RefCell::new(Vec::new()),
             mouse_hover: None,
             animation_epoch: Instant::now(),
@@ -1412,7 +1412,7 @@ impl App {
                 if self.selected_speed_presets().is_empty() {
                     self.message = "请至少选择一个测试项目".to_string();
                 } else {
-                    self.speed_system_armed = false;
+                    self.system_confirm_input.clear();
                     self.screen = Screen::SpeedConfirm;
                 }
             }
@@ -1421,15 +1421,26 @@ impl App {
     }
 
     fn handle_speed_confirm(&mut self, key: KeyEvent) {
+        let any_system = self
+            .target_volumes()
+            .iter()
+            .any(|volume| self.selected_is_system_volume(volume));
         match key.code {
-            KeyCode::Esc | KeyCode::Char('n') => self.screen = Screen::SpeedSettings,
-            KeyCode::Enter | KeyCode::Char('y') => {
-                let any_system = self
-                    .target_volumes()
-                    .iter()
-                    .any(|volume| self.selected_is_system_volume(volume));
-                if any_system && !self.speed_system_armed {
-                    self.speed_system_armed = true;
+            KeyCode::Esc => {
+                self.system_confirm_input.clear();
+                self.screen = Screen::SpeedSettings;
+            }
+            KeyCode::Backspace => {
+                self.system_confirm_input.pop();
+            }
+            KeyCode::Char(ch) if any_system && ch.is_ascii_alphabetic() => {
+                self.system_confirm_input.push(ch.to_ascii_uppercase());
+            }
+            KeyCode::Char('n') if !any_system => self.screen = Screen::SpeedSettings,
+            KeyCode::Char('y') if !any_system => self.launch_speed_multi(),
+            KeyCode::Enter => {
+                if any_system && !self.system_confirm_input.eq_ignore_ascii_case("YES") {
+                    self.message = "请输入 YES 后再确认".to_string();
                 } else {
                     self.launch_speed_multi();
                 }
@@ -1717,12 +1728,18 @@ impl App {
                 "警告：目标包含系统盘，确认后会写入基准测试文件。",
                 self.theme.danger(),
             ));
-            if self.speed_system_armed {
-                lines.push(Line::styled(
-                    "再次按 Enter 确认系统盘。",
-                    self.theme.warning(),
-                ));
-            }
+            lines.push(Line::styled(
+                "系统盘保护：输入 YES 后按 Enter 开始。",
+                self.theme.warning(),
+            ));
+            lines.push(Line::from(format!(
+                "确认输入: {}",
+                if self.system_confirm_input.is_empty() {
+                    "____"
+                } else {
+                    self.system_confirm_input.as_str()
+                }
+            )));
             lines.push(Line::from(""));
         }
         lines.push(Line::from(format!("目标（{} 个盘）:", targets.len())));
@@ -1749,30 +1766,17 @@ impl App {
             yes_no(values.ignore_errors)
         )));
         lines.push(Line::from(""));
-        lines.push(Line::styled(
-            "Enter / y 开始      Esc / n 返回",
-            self.theme.dim(),
-        ));
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(
-                    Block::bordered()
-                        .title(" 确认速度测试 ")
-                        .border_style(self.theme.border()),
-                )
-                .wrap(Wrap { trim: true }),
-            area,
-        );
-        let button_y = area.y + area.height.saturating_sub(2);
-        let half = area.width / 2;
-        self.record_hotspot(
-            Rect::new(area.x, button_y, half, 1),
-            MouseAction::Key(KeyCode::Enter),
-        );
-        self.record_hotspot(
-            Rect::new(area.x + half, button_y, area.width - half, 1),
-            MouseAction::Key(KeyCode::Esc),
-        );
+        let block = Block::bordered()
+            .title(" 确认速度测试 ")
+            .border_style(self.theme.border());
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
+        self.render_button_row(frame, chunks[1], "Enter 开始      Esc 返回");
     }
 
     fn mouse_event(&mut self, event: MouseEvent) -> bool {
@@ -2010,6 +2014,7 @@ impl App {
             Screen::Confirm => match code {
                 KeyCode::Enter | KeyCode::Char('y') => {
                     if self.needs_system_confirmation() {
+                        self.system_confirm_input.clear();
                         self.screen = Screen::SystemConfirm;
                     } else {
                         self.launch_selected(self.settings.values);
@@ -2021,9 +2026,22 @@ impl App {
                 _ => {}
             },
             Screen::SystemConfirm => match code {
-                KeyCode::Enter | KeyCode::Char('y') => self.launch_selected(self.settings.values),
-                KeyCode::Esc | KeyCode::Char('n') => {
+                KeyCode::Enter => {
+                    if self.system_confirm_input.eq_ignore_ascii_case("YES") {
+                        self.launch_selected(self.settings.values);
+                    } else {
+                        self.message = "请输入 YES 后再确认".to_string();
+                    }
+                }
+                KeyCode::Esc => {
+                    self.system_confirm_input.clear();
                     self.screen = Screen::Confirm;
+                }
+                KeyCode::Backspace => {
+                    self.system_confirm_input.pop();
+                }
+                KeyCode::Char(ch) if ch.is_ascii_alphabetic() => {
+                    self.system_confirm_input.push(ch.to_ascii_uppercase());
                 }
                 _ => {}
             },
@@ -2598,28 +2616,32 @@ impl App {
             yes_no(values.auto_export)
         )));
         lines.push(Line::from(""));
-        lines.push(Line::styled(
-            "Enter / y 立即开始      Esc / n 返回设置",
-            self.theme.dim(),
-        ));
+        let block = Block::bordered()
+            .title(format!(" 确认测试（{} 个盘） ", targets.len()))
+            .border_style(self.theme.border());
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
+        self.render_button_row(frame, chunks[1], "Enter 立即开始      Esc 返回设置");
+    }
+
+    fn render_button_row(&self, frame: &mut Frame, area: Rect, hint: &str) {
         frame.render_widget(
-            Paragraph::new(lines)
-                .block(
-                    Block::bordered()
-                        .title(format!(" 确认测试（{} 个盘） ", targets.len()))
-                        .border_style(self.theme.border()),
-                )
-                .wrap(Wrap { trim: true }),
+            Paragraph::new(Line::styled(hint.to_string(), self.theme.dim()))
+                .alignment(ratatui::layout::Alignment::Center),
             area,
         );
-        let button_y = area.y + area.height.saturating_sub(2);
         let half = area.width / 2;
         self.record_hotspot(
-            Rect::new(area.x, button_y, half, 1),
+            Rect::new(area.x, area.y, half, 1),
             MouseAction::Key(KeyCode::Enter),
         );
         self.record_hotspot(
-            Rect::new(area.x + half, button_y, area.width - half, 1),
+            Rect::new(area.x + half, area.y, area.width - half, 1),
             MouseAction::Key(KeyCode::Esc),
         );
     }
@@ -2653,28 +2675,29 @@ impl App {
                 self.theme.warning(),
             ),
             Line::from(""),
-            Line::styled("Enter / y 确认开始      Esc / n 返回", self.theme.dim()),
+            Line::styled(
+                format!(
+                    "请输入 YES 确认：{}",
+                    if self.system_confirm_input.is_empty() {
+                        "____"
+                    } else {
+                        self.system_confirm_input.as_str()
+                    }
+                ),
+                self.theme.text(),
+            ),
         ];
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(
-                    Block::bordered()
-                        .title(" 再次确认 ")
-                        .border_style(self.theme.danger()),
-                )
-                .wrap(Wrap { trim: true }),
-            area,
-        );
-        let button_y = area.y + area.height.saturating_sub(2);
-        let half = area.width / 2;
-        self.record_hotspot(
-            Rect::new(area.x, button_y, half, 1),
-            MouseAction::Key(KeyCode::Enter),
-        );
-        self.record_hotspot(
-            Rect::new(area.x + half, button_y, area.width - half, 1),
-            MouseAction::Key(KeyCode::Esc),
-        );
+        let block = Block::bordered()
+            .title(" 再次确认 ")
+            .border_style(self.theme.danger());
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
+        self.render_button_row(frame, chunks[1], "输入 YES 后 Enter 确认      Esc 返回");
     }
 
     fn render_history_chart(
@@ -4006,6 +4029,18 @@ mod tests {
         let text = normalized(&render_text(&app));
         assert!(text.contains("speedMiB/s"));
         assert!(!text.contains("currentthroughput"));
+    }
+
+    #[test]
+    fn system_confirmation_requires_typed_yes() {
+        let mut app = App::new(ColorMode::Auto);
+        app.screen = Screen::SystemConfirm;
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.screen, Screen::SystemConfirm);
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert_eq!(app.system_confirm_input, "Y");
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.screen, Screen::Confirm);
     }
 
     #[test]

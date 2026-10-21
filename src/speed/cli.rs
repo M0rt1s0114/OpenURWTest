@@ -266,6 +266,42 @@ mod tests {
     }
 
     #[test]
+    fn exit_code_reflects_suite_outcome() {
+        let ok = TargetResult {
+            target: "X:\\".to_string(),
+            result: Ok(SuiteResult::default()),
+        };
+        assert_eq!(suite_exit_code(&[ok]), 0);
+
+        let cancelled = TargetResult {
+            target: "X:\\".to_string(),
+            result: Ok(SuiteResult {
+                cancelled: true,
+                ..SuiteResult::default()
+            }),
+        };
+        assert_eq!(suite_exit_code(&[cancelled]), 130);
+
+        let failed = TargetResult {
+            target: "X:\\".to_string(),
+            result: Ok(SuiteResult {
+                presets: vec![crate::speed::suite::PresetResult {
+                    verify_errors: 1,
+                    ..Default::default()
+                }],
+                ..SuiteResult::default()
+            }),
+        };
+        assert_eq!(suite_exit_code(&[failed]), 1);
+
+        let error = TargetResult {
+            target: "X:\\".to_string(),
+            result: Err("broken".to_string()),
+        };
+        assert_eq!(suite_exit_code(&[error]), 1);
+    }
+
+    #[test]
     fn selects_named_presets() {
         let presets = selected_presets(&["seq1m-q8t1".to_string()]).expect("presets");
         assert_eq!(presets.len(), 1);
