@@ -20,10 +20,6 @@ jobs:
             target: x86_64-pc-windows-msvc
             binary: urwtest-rs.exe
             artifact: urwtest-rs-windows-x86_64
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            binary: urwtest-rs
-            artifact: urwtest-rs-linux-x86_64
 
     steps:
       - name: Checkout
@@ -67,13 +63,12 @@ jobs:
       - name: Generate checksums
         run: |
           cd release
-          sha256sum urwtest-rs.exe urwtest-rs > SHA256SUMS.txt
+          sha256sum urwtest-rs.exe > SHA256SUMS.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             release/urwtest-rs.exe
-            release/urwtest-rs
             release/SHA256SUMS.txt
           generate_release_notes: true

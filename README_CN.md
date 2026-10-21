@@ -234,8 +234,8 @@ urwtest-rs speed --target E:\ --target D:\ --size 4g --json
 
 ## 平台
 
-- 当前目标平台为 Windows 10/11 x86_64。
-- Linux 代码保持可编译，通过 `cargo check --target x86_64-unknown-linux-gnu --all-targets` 检查。
+- 当前支持的目标平台为 Windows 10/11 x86_64。
+- Linux 功能正在制作中；当前不构建、不发布 Linux 版本。
 - 温度与健康从 Windows 存储属性读取；部分 USB 桥接或可移动设备不提供温度，显示 `unknown`。
 
 ## 许可
