@@ -22,6 +22,12 @@ impl HealthStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TemperatureSample {
+    pub elapsed_ms: u64,
+    pub temperature_c: i32,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DriveHealth {
     pub temperature_c: Option<i32>,

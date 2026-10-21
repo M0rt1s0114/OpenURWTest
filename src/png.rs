@@ -8,6 +8,7 @@ use plotters::style::{FontStyle, register_font};
 use std::sync::Once;
 
 use crate::analysis::Analysis;
+use crate::health::TemperatureSample;
 use crate::trace::Phase;
 
 const WIDTH: u32 = 1920;
@@ -53,7 +54,12 @@ fn ensure_font() {
     });
 }
 
-pub fn write_quality_png(path: &Path, target: &Path, analysis: &Analysis) -> Result<()> {
+pub fn write_quality_png(
+    path: &Path,
+    target: &Path,
+    analysis: &Analysis,
+    temperatures: &[TemperatureSample],
+) -> Result<()> {
     ensure_font();
     let root = BitMapBackend::new(path, (WIDTH, HEIGHT)).into_drawing_area();
     root.fill(&WHITE).map_err(draw_error)?;
@@ -79,22 +85,50 @@ pub fn write_quality_png(path: &Path, target: &Path, analysis: &Analysis) -> Res
         .map(|sample| sample.speed_mibps)
         .fold(1.0, f64::max)
         * 1.1;
-    let mut chart = ChartBuilder::on(&root)
+    let temperature: Vec<(f64, f64)> = temperatures
+        .iter()
+        .map(|sample| {
+            (
+                sample.elapsed_ms as f64 / 1000.0,
+                sample.temperature_c as f64,
+            )
+        })
+        .collect();
+    let min_temp = temperature
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(f64::MAX, f64::min)
+        - 5.0;
+    let max_temp = temperature
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(f64::MIN, f64::max)
+        + 5.0;
+    let chart = ChartBuilder::on(&root)
         .caption(
-            format!("{} speed and temperature", drive_suffix(target)),
+            format!("{} 速度与温度", drive_suffix(target)),
             ("sans-serif", 32),
         )
         .margin(24)
         .x_label_area_size(54)
         .y_label_area_size(80)
+        .right_y_label_area_size(80)
         .build_cartesian_2d(0.0f64..max_time, 0.0f64..max_speed)
         .map_err(draw_error)?;
+    let mut chart = chart.set_secondary_coord(0.0f64..max_time, min_temp..max_temp);
     chart
         .configure_mesh()
         .x_desc("time (s)")
         .y_desc("MiB/s")
         .draw()
         .map_err(draw_error)?;
+    if !temperature.is_empty() {
+        chart
+            .configure_secondary_axes()
+            .y_desc("温度 (C)")
+            .draw()
+            .map_err(draw_error)?;
+    }
 
     let write: Vec<(f64, f64)> = analysis
         .samples
@@ -122,6 +156,13 @@ pub fn write_quality_png(path: &Path, target: &Path, analysis: &Analysis) -> Res
             .label("read+verify")
             .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], GREEN.stroke_width(2)));
     }
+    if !temperature.is_empty() {
+        chart
+            .draw_secondary_series(LineSeries::new(temperature, RED.stroke_width(2)))
+            .map_err(draw_error)?
+            .label("temperature")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RED.stroke_width(2)));
+    }
     chart
         .configure_series_labels()
         .background_style(WHITE.mix(0.9))
@@ -136,7 +177,12 @@ fn draw_error<E: std::fmt::Debug>(error: E) -> anyhow::Error {
     anyhow!("failed to draw PNG: {error:?}")
 }
 
-pub fn write_png(path: &Path, target: &Path, analysis: &Analysis) -> Result<()> {
-    write_quality_png(path, target, analysis)
+pub fn write_png(
+    path: &Path,
+    target: &Path,
+    analysis: &Analysis,
+    temperatures: &[TemperatureSample],
+) -> Result<()> {
+    write_quality_png(path, target, analysis, temperatures)
         .with_context(|| format!("failed to write {}", path.display()))
 }

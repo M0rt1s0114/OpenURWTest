@@ -17,6 +17,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::cancel::{self, CancelToken};
 use crate::format::{self, BLOCK_SIZE, BLOCKS_PER_FILE, MIN_FREE_SPACE, Prng};
+use crate::health::{self, TemperatureSample};
 use crate::io::AlignedBlock;
 use crate::reporter::{ErrorInfo, ProgressInfo, Reporter};
 use crate::trace::{Phase, RunTrace};
@@ -82,6 +83,7 @@ pub struct Summary {
     pub device_lost: bool,
     pub write_only: bool,
     pub trace: RunTrace,
+    pub temperature_history: Vec<TemperatureSample>,
 }
 
 impl Summary {
@@ -120,6 +122,7 @@ pub fn run(
         ..Summary::default()
     };
     let run_start = Instant::now();
+    sample_temperature(options.target, &run_start, &mut summary.temperature_history);
 
     reporter.run_started(options.target, passes, options.verify);
 
@@ -142,6 +145,7 @@ pub fn run(
                 reporter,
                 options.cancel.as_ref(),
                 &mut summary.trace,
+                &mut summary.temperature_history,
                 run_start,
             )?;
             summary.wrote_bytes += stats.bytes;
@@ -173,6 +177,7 @@ pub fn run(
             reporter,
             options.cancel.as_ref(),
             &mut summary.trace,
+            &mut summary.temperature_history,
             run_start,
         )?;
         summary.read_bytes += stats.bytes;
@@ -227,7 +232,16 @@ pub fn verify_existing(target: &Path, reporter: &mut dyn Reporter) -> Result<Sum
     reporter.run_started(target, 1, true);
     reporter.pass_started(1, 1);
 
-    let stats = verify_pass(target, 1, 1, reporter, None, &mut summary.trace, run_start)?;
+    let stats = verify_pass(
+        target,
+        1,
+        1,
+        reporter,
+        None,
+        &mut summary.trace,
+        &mut Vec::new(),
+        run_start,
+    )?;
     summary.read_bytes = stats.bytes;
     summary.data_errors = stats.data_errors;
     summary.read_errors = stats.read_errors;
@@ -307,6 +321,7 @@ fn write_pass(
     reporter: &mut dyn Reporter,
     cancel: Option<&CancelToken>,
     trace: &mut RunTrace,
+    temperature_history: &mut Vec<TemperatureSample>,
     run_start: Instant,
 ) -> Result<PhaseStats> {
     let start_free = space.free_bytes(target)?;
@@ -384,6 +399,7 @@ fn write_pass(
         }
 
         clock.tick(reporter, blocks * BLOCK_SIZE);
+        sample_temperature(target, &run_start, temperature_history);
     }
 
     drop(file);
@@ -407,6 +423,7 @@ fn verify_pass(
     reporter: &mut dyn Reporter,
     cancel: Option<&CancelToken>,
     trace: &mut RunTrace,
+    temperature_history: &mut Vec<TemperatureSample>,
     run_start: Instant,
 ) -> Result<PhaseStats> {
     let files = format::scan_test_files(target)?;
@@ -488,12 +505,31 @@ fn verify_pass(
         }
 
         clock.tick(reporter, verified * BLOCK_SIZE);
+        sample_temperature(target, &run_start, temperature_history);
     }
 
     stats.bytes = verified * BLOCK_SIZE;
     stats.seconds = phase_start.elapsed().as_secs_f64();
     reporter.phase_finished(pass, Phase::Verify, &stats);
     Ok(stats)
+}
+
+const TEMPERATURE_INTERVAL_MS: u64 = 30_000;
+
+fn sample_temperature(target: &Path, run_start: &Instant, history: &mut Vec<TemperatureSample>) {
+    let elapsed_ms = run_start.elapsed().as_millis() as u64;
+    if history
+        .last()
+        .is_some_and(|last| elapsed_ms.saturating_sub(last.elapsed_ms) < TEMPERATURE_INTERVAL_MS)
+    {
+        return;
+    }
+    if let Some(temperature_c) = health::read_health(target).temperature_c {
+        history.push(TemperatureSample {
+            elapsed_ms,
+            temperature_c,
+        });
+    }
 }
 
 fn is_disk_full(error: &io::Error) -> bool {
@@ -623,6 +659,7 @@ mod tests {
             &mut reporter,
             None,
             &mut trace,
+            &mut Vec::new(),
             Instant::now(),
         )
         .expect("write pass");
@@ -648,6 +685,7 @@ mod tests {
             &mut reporter,
             None,
             &mut trace,
+            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify pass");
@@ -676,6 +714,7 @@ mod tests {
             &mut reporter,
             None,
             &mut trace,
+            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify pass");
@@ -746,6 +785,7 @@ mod tests {
             &mut reporter,
             None,
             &mut trace,
+            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify kept data");
@@ -789,6 +829,7 @@ mod tests {
             &mut reporter,
             None,
             &mut trace,
+            &mut Vec::new(),
             Instant::now(),
         )
         .expect("write pass");
@@ -813,6 +854,7 @@ mod tests {
             &mut reporter,
             None,
             &mut trace,
+            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify pass");

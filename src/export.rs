@@ -42,7 +42,12 @@ pub fn export(directory: &Path, input: &ExportInput<'_>) -> Result<Vec<PathBuf>>
     written.push(path);
 
     let path = directory.join(crate::png::quality_file_name(input.target));
-    crate::png::write_png(&path, input.target, input.analysis)?;
+    crate::png::write_png(
+        &path,
+        input.target,
+        input.analysis,
+        &input.summary.temperature_history,
+    )?;
     written.push(path);
 
     Ok(written)
@@ -512,6 +517,7 @@ mod tests {
     use super::*;
     use crate::analysis::analyze;
     use crate::engine::Summary;
+    use crate::health::TemperatureSample;
     use crate::trace::{Phase, RunTrace};
 
     fn sample_trace() -> RunTrace {
@@ -577,6 +583,20 @@ mod tests {
             passes: 1,
             passed: 1,
             trace: sample_trace(),
+            temperature_history: vec![
+                TemperatureSample {
+                    elapsed_ms: 0,
+                    temperature_c: 40,
+                },
+                TemperatureSample {
+                    elapsed_ms: 500,
+                    temperature_c: 45,
+                },
+                TemperatureSample {
+                    elapsed_ms: 1000,
+                    temperature_c: 50,
+                },
+            ],
             ..Summary::default()
         };
         let params = AnalysisParams::default();
