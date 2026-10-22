@@ -303,6 +303,7 @@ impl App {
             },
             Screen::Results => {
                 let mut refresh = false;
+                let mut export = false;
                 {
                     let Some(results) = self.results.as_mut() else {
                         return false;
@@ -345,13 +346,16 @@ impl App {
                             refresh = true;
                         }
                         KeyCode::Char('e') => {
-                            results.export();
+                            export = true;
                         }
                         _ => {}
                     }
                 }
                 if refresh {
                     self.refresh_results_async();
+                }
+                if export {
+                    self.export_results_async();
                 }
             }
         }
