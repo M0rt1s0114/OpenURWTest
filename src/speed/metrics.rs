@@ -110,7 +110,11 @@ fn percentile(histogram: &[u64; HISTOGRAM_BUCKETS], total: u64, percent: u64) ->
     for (index, count) in histogram.iter().enumerate() {
         seen += *count;
         if seen >= target {
-            return if index == 0 { 1 } else { 1u64 << index };
+            return if index == 0 {
+                1
+            } else {
+                (1u64 << index) | (1u64 << (index - 1))
+            };
         }
     }
     1u64 << (HISTOGRAM_BUCKETS - 1)
@@ -151,7 +155,7 @@ mod tests {
             counters.record(true, 4096, 1_000);
         }
         let snapshot = counters.snapshot(Duration::from_secs(1));
-        assert_eq!(snapshot.p50_latency_ns, 512);
-        assert_eq!(snapshot.p99_latency_ns, 512);
+        assert_eq!(snapshot.p50_latency_ns, 768);
+        assert_eq!(snapshot.p99_latency_ns, 768);
     }
 }

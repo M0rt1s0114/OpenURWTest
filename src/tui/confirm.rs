@@ -8,6 +8,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
 use super::{App, MouseAction, RunMode, centered_rect, yes_no};
 use crate::console::format_bytes;
+use crate::format;
 
 impl App {
     pub(super) fn render_speed_confirm(&self, frame: &mut Frame) {
@@ -134,6 +135,22 @@ impl App {
         }
         lines.push(Line::from(""));
         lines.push(Line::from(format!("模式:     {mode_text}")));
+        if values.mode != RunMode::VerifyExisting {
+            let existing: u32 = targets
+                .iter()
+                .map(|volume| {
+                    format::scan_test_files(&volume.mount_point)
+                        .map(|files| files.len() as u32)
+                        .unwrap_or(0)
+                })
+                .sum();
+            if existing > 0 {
+                lines.push(Line::styled(
+                    format!("已有 {existing} 个测试文件，开始后会被删除并重写。"),
+                    self.theme.warning(),
+                ));
+            }
+        }
         lines.push(Line::from(format!("圈数:     {}", values.passes)));
         lines.push(Line::from(format!(
             "出错继续: {}",

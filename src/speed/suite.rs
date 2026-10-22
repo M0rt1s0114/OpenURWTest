@@ -25,6 +25,10 @@ pub struct SpeedPreset {
     pub random: bool,
 }
 
+pub fn bench_file_name() -> String {
+    format!("BENCH{}.DAT", std::process::id())
+}
+
 pub const PRESETS: [SpeedPreset; 4] = [
     SpeedPreset {
         id: "SEQ1M_Q8T1",
@@ -171,7 +175,7 @@ pub fn run_suite(
         }
     }
 
-    let path = target.join("BENCH0001.DAT");
+    let path = target.join(bench_file_name());
     let mut result = SuiteResult {
         file_size: options.file_size,
         ..SuiteResult::default()
@@ -313,6 +317,7 @@ struct WorkerOutcome {
     write_errors: u64,
     read_errors: u64,
     verify_errors: u64,
+    cpu_ns: u128,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -423,11 +428,11 @@ fn run_phase(
                 mibps,
             });
             curve.push((bytes, mibps));
-            if next_temperature.elapsed() >= Duration::from_secs(30)
-                && let Some(value) = health::read_health(path).temperature_c
-            {
-                temperature.push((bytes, value));
+            if next_temperature.elapsed() >= Duration::from_secs(30) {
                 next_temperature = Instant::now();
+                if let Some(value) = health::read_health(path).temperature_c {
+                    temperature.push((bytes, value));
+                }
             }
             last = now;
             last_bytes = bytes;
@@ -454,6 +459,7 @@ fn run_phase(
     let mut write_errors = 0u64;
     let mut read_errors = 0u64;
     let mut verify_errors = 0u64;
+    let mut cpu_ns = 0u128;
     let mut stopped_at = None;
     for handle in handles {
         let outcome = handle
@@ -463,12 +469,16 @@ fn run_phase(
         write_errors += outcome.write_errors;
         read_errors += outcome.read_errors;
         verify_errors += outcome.verify_errors;
+        cpu_ns += outcome.cpu_ns;
     }
     if strict && errors_logged > 0 {
         stopped_at = first_error;
     }
     let elapsed = start.elapsed().saturating_sub(paused_total);
-    let metrics = counters.snapshot(elapsed);
+    let cpu_wall =
+        Duration::from_nanos((cpu_ns / workers.max(1) as u128).min(u64::MAX as u128) as u64);
+    let effective_elapsed = elapsed.saturating_sub(cpu_wall);
+    let metrics = counters.snapshot(effective_elapsed);
     Ok(PhaseOutcome {
         metrics,
         curve,
@@ -505,6 +515,7 @@ fn worker_loop(
     let mut write_errors = 0u64;
     let mut read_errors = 0u64;
     let mut verify_errors = 0u64;
+    let mut cpu_ns = 0u128;
 
     for position in (lane..order.len()).step_by(workers) {
         while pause.is_some_and(PauseToken::is_paused) && !cancel.load(Ordering::SeqCst) {
@@ -515,7 +526,9 @@ fn worker_loop(
         }
         let block = order[position] as u64;
         let offset = block * block_size;
+        let fill_started = Instant::now();
         fill_pattern(expected.as_mut_slice(), block, seed);
+        cpu_ns += fill_started.elapsed().as_nanos();
         if is_read {
             let started = Instant::now();
             let result = file.read_at(offset, &mut actual);
@@ -523,7 +536,10 @@ fn worker_loop(
             match result {
                 Ok(bytes) => {
                     counters.record(true, bytes as u64, latency);
-                    if actual.as_slice() != expected.as_slice() {
+                    let compare_started = Instant::now();
+                    let mismatch = actual.as_slice() != expected.as_slice();
+                    cpu_ns += compare_started.elapsed().as_nanos();
+                    if mismatch {
                         verify_errors += 1;
                         let _ = error_tx.send(WorkerError {
                             offset,
@@ -576,6 +592,7 @@ fn worker_loop(
         write_errors,
         read_errors,
         verify_errors,
+        cpu_ns,
     })
 }
 
@@ -717,7 +734,7 @@ mod tests {
     #[test]
     fn sequential_verify_error_stops_the_suite() {
         let dir = temp_dir("seq-corrupt");
-        let path = dir.join("BENCH0001.DAT");
+        let path = dir.join(bench_file_name());
         let mut corrupted = false;
         let result = run_suite(
             &dir,
@@ -746,7 +763,7 @@ mod tests {
     #[test]
     fn random_verify_error_is_logged_but_does_not_stop() {
         let dir = temp_dir("rnd-corrupt");
-        let path = dir.join("BENCH0001.DAT");
+        let path = dir.join(bench_file_name());
         let mut corrupted = false;
         let result = run_suite(
             &dir,

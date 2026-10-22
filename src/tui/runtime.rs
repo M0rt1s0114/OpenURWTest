@@ -278,7 +278,7 @@ impl App {
             && !summary.device_lost;
         let mut message = String::new();
         if auto_export {
-            let directory = export_directory();
+            let directory = export_directory_for(&target);
             let export_target = target.clone();
             let export_summary = summary.clone();
             let export_analysis = analysis.clone();
@@ -320,6 +320,7 @@ impl App {
             params,
             axis: Axis::Position,
             message,
+            include_temperature: report_temperature,
         });
         self.screen = Screen::Results;
         completion_notification(if success {
@@ -377,9 +378,12 @@ impl App {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut reporter = TuiReporter::single(tx);
                 let result = match mode {
-                    RunMode::VerifyExisting => {
-                        engine::verify_existing(&target_for_thread, &mut reporter)
-                    }
+                    RunMode::VerifyExisting => engine::verify_existing_with_control(
+                        &target_for_thread,
+                        Some(&worker_token),
+                        Some(&worker_pause),
+                        &mut reporter,
+                    ),
                     RunMode::WriteOnly | RunMode::WriteVerify => {
                         let options = RunOptions {
                             target: &target_for_thread,
@@ -501,9 +505,12 @@ impl App {
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut reporter = TuiReporter::multi(index, tx);
                     let result = match mode {
-                        RunMode::VerifyExisting => {
-                            engine::verify_existing(&thread_target, &mut reporter)
-                        }
+                        RunMode::VerifyExisting => engine::verify_existing_with_control(
+                            &thread_target,
+                            Some(&thread_token),
+                            Some(&thread_pause),
+                            &mut reporter,
+                        ),
                         RunMode::WriteOnly | RunMode::WriteVerify => {
                             let options = RunOptions {
                                 target: &thread_target,
@@ -1052,7 +1059,9 @@ impl App {
                             let _ = tx_events.send((index, TuiEvent::Suite(Box::new(event))));
                         },
                     );
-                    let _ = std::fs::remove_file(thread_target.join("BENCH0001.DAT"));
+                    let _ = std::fs::remove_file(
+                        thread_target.join(crate::speed::suite::bench_file_name()),
+                    );
                     match result {
                         Ok(result) => {
                             let _ = tx.send((index, TuiEvent::SuiteFinished(Box::new(result))));
@@ -1111,7 +1120,13 @@ impl App {
         let Some((kind, rows)) = self.multi_report_rows() else {
             return;
         };
-        let directory = export_directory().join("multi");
+        let target = self
+            .multi
+            .as_ref()
+            .and_then(|multi| multi.tasks.first())
+            .map(|task| task.target_path.clone())
+            .unwrap_or_default();
+        let directory = export_directory_for(&target).join("multi");
         let png_inputs = self.speed_png_inputs();
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
@@ -1144,7 +1159,13 @@ impl App {
         let Some((kind, rows)) = self.multi_report_rows() else {
             return;
         };
-        let directory = export_directory().join("multi");
+        let target = self
+            .multi
+            .as_ref()
+            .and_then(|multi| multi.tasks.first())
+            .map(|task| task.target_path.clone())
+            .unwrap_or_default();
+        let directory = export_directory_for(&target).join("multi");
         let mut count = 0usize;
         let mut error = None;
         match export::export_multi(&directory, kind, &rows) {

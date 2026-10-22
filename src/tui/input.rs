@@ -226,7 +226,9 @@ impl App {
                 KeyCode::Backspace => {
                     self.system_confirm_input.pop();
                 }
-                KeyCode::Char(ch) if ch.is_ascii_alphabetic() => {
+                KeyCode::Char(ch)
+                    if ch.is_ascii_alphabetic() && self.system_confirm_input.len() < 3 =>
+                {
                     self.system_confirm_input.push(ch.to_ascii_uppercase());
                 }
                 _ => {}

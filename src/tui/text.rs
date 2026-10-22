@@ -1,6 +1,8 @@
 //! Shared formatting and display helpers for the terminal UI.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use crate::volume;
 
 pub(super) fn export_directory() -> PathBuf {
     let stamp = std::time::SystemTime::now()
@@ -11,6 +13,23 @@ pub(super) fn export_directory() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("urwtest-export")
         .join(stamp.to_string())
+}
+
+pub(super) fn export_directory_for(target: &Path) -> PathBuf {
+    let directory = export_directory();
+    let target_volume = volume::find_volume_containing(target);
+    let export_volume = volume::find_volume_containing(&directory);
+    if target_volume.as_ref().map(|volume| &volume.mount_point)
+        == export_volume.as_ref().map(|volume| &volume.mount_point)
+    {
+        let name = directory
+            .file_name()
+            .map(|name| name.to_os_string())
+            .unwrap_or_else(|| "export".into());
+        std::env::temp_dir().join("urwtest-export").join(name)
+    } else {
+        directory
+    }
 }
 
 pub(super) fn display_width(text: &str) -> usize {

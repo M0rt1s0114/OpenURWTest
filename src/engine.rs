@@ -138,7 +138,14 @@ pub fn run(
         ..Summary::default()
     };
     let run_start = Instant::now();
-    sample_temperature(options.target, &run_start, &mut summary.temperature_history);
+    let mut initial_temperature_attempt = None;
+    sample_temperature(
+        options.target,
+        &run_start,
+        &mut summary.temperature_history,
+        &mut initial_temperature_attempt,
+        0,
+    );
 
     reporter.run_started(options.target, passes, options.verify);
 
@@ -241,6 +248,15 @@ pub fn run(
 
 /// Verify test data that already exists on the target.
 pub fn verify_existing(target: &Path, reporter: &mut dyn Reporter) -> Result<Summary> {
+    verify_existing_with_control(target, None, None, reporter)
+}
+
+pub fn verify_existing_with_control(
+    target: &Path,
+    cancel: Option<&CancelToken>,
+    pause: Option<&PauseToken>,
+    reporter: &mut dyn Reporter,
+) -> Result<Summary> {
     let mut summary = Summary {
         passes: 1,
         ..Summary::default()
@@ -255,8 +271,8 @@ pub fn verify_existing(target: &Path, reporter: &mut dyn Reporter) -> Result<Sum
         1,
         1,
         reporter,
-        None,
-        None,
+        cancel,
+        pause,
         &mut summary.trace,
         &mut Vec::new(),
         run_start,
@@ -373,6 +389,7 @@ fn write_pass(
     let mut device_lost = false;
     let mut write_errors = 0u64;
     let mut clock = PhaseProgress::new(pass, passes, Phase::Write, start_free);
+    let mut last_temperature_attempt = None;
     let mut paused_total = Duration::ZERO;
 
     loop {
@@ -433,7 +450,13 @@ fn write_pass(
         }
 
         clock.tick(reporter, blocks * BLOCK_SIZE);
-        sample_temperature(target, &run_start, temperature_history);
+        sample_temperature(
+            target,
+            &run_start,
+            temperature_history,
+            &mut last_temperature_attempt,
+            trace.points.last().map(|point| point.run_ms).unwrap_or(0),
+        );
     }
 
     drop(file);
@@ -484,6 +507,7 @@ fn verify_pass(
     let mut stats = PhaseStats::default();
     let mut verified = 0u64;
     let mut clock = PhaseProgress::new(pass, passes, Phase::Verify, total_bytes);
+    let mut last_temperature_attempt = None;
     let mut paused_total = Duration::ZERO;
 
     for block in 0..total {
@@ -550,7 +574,13 @@ fn verify_pass(
         }
 
         clock.tick(reporter, verified * BLOCK_SIZE);
-        sample_temperature(target, &run_start, temperature_history);
+        sample_temperature(
+            target,
+            &run_start,
+            temperature_history,
+            &mut last_temperature_attempt,
+            trace.points.last().map(|point| point.run_ms).unwrap_or(0),
+        );
     }
 
     stats.bytes = verified * BLOCK_SIZE;
@@ -561,17 +591,22 @@ fn verify_pass(
 
 const TEMPERATURE_INTERVAL_MS: u64 = 30_000;
 
-fn sample_temperature(target: &Path, run_start: &Instant, history: &mut Vec<TemperatureSample>) {
+fn sample_temperature(
+    target: &Path,
+    run_start: &Instant,
+    history: &mut Vec<TemperatureSample>,
+    last_attempt_ms: &mut Option<u64>,
+    timestamp_ms: u64,
+) {
     let elapsed_ms = run_start.elapsed().as_millis() as u64;
-    if history
-        .last()
-        .is_some_and(|last| elapsed_ms.saturating_sub(last.elapsed_ms) < TEMPERATURE_INTERVAL_MS)
+    if last_attempt_ms.is_some_and(|last| elapsed_ms.saturating_sub(last) < TEMPERATURE_INTERVAL_MS)
     {
         return;
     }
+    *last_attempt_ms = Some(elapsed_ms);
     if let Some(temperature_c) = health::read_health(target).temperature_c {
         history.push(TemperatureSample {
-            elapsed_ms,
+            elapsed_ms: timestamp_ms,
             temperature_c,
         });
     }

@@ -100,7 +100,7 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
                 }
             })
             .map_err(|error| format!("{error:#}"));
-            let _ = std::fs::remove_file(target.join("BENCH0001.DAT"));
+            let _ = std::fs::remove_file(target.join(crate::speed::suite::bench_file_name()));
             TargetResult {
                 target: target.display().to_string(),
                 result,
@@ -117,6 +117,17 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
         );
     }
 
+    if args.json {
+        println!("{}", json_results(&results));
+    } else {
+        for target in &results {
+            print_text_target(target);
+        }
+    }
+
+    if args.no_export {
+        return Ok(suite_exit_code(&results));
+    }
     let export_dir = args.export.clone().unwrap_or_else(|| {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -131,45 +142,46 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
     for item in &results {
         if let Ok(result) = &item.result {
             let target = std::path::Path::new(&item.target);
-            exported +=
-                png_speed::write_speed_pngs(&export_dir, target, result, args.export_temperature)?
-                    .len();
+            match png_speed::write_speed_pngs(&export_dir, target, result, args.export_temperature)
+            {
+                Ok(files) => exported += files.len(),
+                Err(error) => eprintln!("warning: PNG export failed: {error:#}"),
+            }
         }
     }
-    if !args.json {
+    if !args.json && exported > 0 {
         eprintln!(
             "exported {exported} PNG file(s) to {}",
             export_dir.display()
         );
     }
-
-    if args.json {
-        println!("{}", json_results(&results));
-    } else {
-        for target in &results {
-            print_text_target(target);
-        }
-    }
     Ok(suite_exit_code(&results))
 }
 
 fn suite_exit_code(results: &[TargetResult]) -> i32 {
-    let mut code = 0;
+    let mut failed = false;
+    let mut cancelled = false;
     for target in results {
         match &target.result {
-            Err(_) => code = code.max(1),
-            Ok(result) if result.cancelled => code = 130,
+            Err(_) => failed = true,
+            Ok(result) if result.cancelled => cancelled = true,
             Ok(result) => {
                 if result.error.is_some()
                     || result.stopped
                     || result.presets.iter().any(|preset| preset.failed())
                 {
-                    code = code.max(1);
+                    failed = true;
                 }
             }
         }
     }
-    code
+    if failed {
+        1
+    } else if cancelled {
+        130
+    } else {
+        0
+    }
 }
 
 fn selected_presets(values: &[String]) -> Result<Vec<SpeedPreset>> {

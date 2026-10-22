@@ -125,13 +125,14 @@ fn app_loop_target(
     color: ColorMode,
 ) -> Result<()> {
     let mut app = App::new(color);
-    if let Some(index) = app
+    let selected_volume = volume::find_volume(target).ok_or_else(|| {
+        anyhow::anyhow!("target is not a mounted volume root: {}", target.display())
+    })?;
+    app.selected = app
         .volumes
         .iter()
-        .position(|volume| volume.mount_point == target)
-    {
-        app.selected = index;
-    }
+        .position(|volume| volume.mount_point == selected_volume.mount_point)
+        .ok_or_else(|| anyhow::anyhow!("target volume is not in the volume list"))?;
     app.open_settings(mode);
     app.settings.values.passes = passes.max(1);
     app.settings.values.continue_on_error = continue_on_error;
@@ -479,6 +480,7 @@ struct ResultsState {
     params: AnalysisParams,
     axis: Axis,
     message: String,
+    include_temperature: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -760,13 +762,13 @@ impl ResultsState {
     }
 
     fn export(&mut self) {
-        let directory = export_directory();
+        let directory = export_directory_for(&self.target);
         let input = ExportInput {
             target: &self.target,
             summary: &self.summary,
             analysis: &self.analysis,
             params: &self.params,
-            include_temperature: false,
+            include_temperature: self.include_temperature,
         };
         match export::export(&directory, &input) {
             Ok(files) => {

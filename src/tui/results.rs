@@ -496,7 +496,7 @@ impl App {
         ]);
         let stats_line = Line::styled(
             format!(
-                "峰值 {:.1} MiB/s   平均 {:.1} MiB/s   最低 {:.1} MiB/s",
+                "写阶段 峰值 {:.1} MiB/s   平均 {:.1} MiB/s   最低 {:.1} MiB/s",
                 results.analysis.peak_mibps,
                 results.analysis.mean_mibps,
                 results.analysis.min_mibps

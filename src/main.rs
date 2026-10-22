@@ -72,7 +72,7 @@ fn real_main() -> Result<i32> {
             if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() {
                 tui::run_home(cli.color, cli.mouse)?;
             } else {
-                interactive::run(&console, progress)?;
+                return interactive::run(&console, progress);
             }
         }
         Some(Commands::List) => {
@@ -198,10 +198,7 @@ fn real_main() -> Result<i32> {
     Ok(0)
 }
 
-fn summary_exit_code(summary: &Summary) -> i32 {
-    if summary.interrupted {
-        return 130;
-    }
+pub(crate) fn summary_exit_code(summary: &Summary) -> i32 {
     if summary.failed > 0
         || summary.error_pass.is_some()
         || summary.data_errors > 0
@@ -210,6 +207,9 @@ fn summary_exit_code(summary: &Summary) -> i32 {
         || summary.device_lost
     {
         return 1;
+    }
+    if summary.interrupted {
+        return 130;
     }
     0
 }
