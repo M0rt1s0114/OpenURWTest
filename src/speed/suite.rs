@@ -423,11 +423,11 @@ fn run_phase(
                 mibps,
             });
             curve.push((bytes, mibps));
-            if next_temperature.elapsed() >= Duration::from_secs(30)
-                && let Some(value) = health::read_health(path).temperature_c
-            {
-                temperature.push((bytes, value));
+            if next_temperature.elapsed() >= Duration::from_secs(30) {
                 next_temperature = Instant::now();
+                if let Some(value) = health::read_health(path).temperature_c {
+                    temperature.push((bytes, value));
+                }
             }
             last = now;
             last_bytes = bytes;

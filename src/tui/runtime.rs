@@ -377,9 +377,12 @@ impl App {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut reporter = TuiReporter::single(tx);
                 let result = match mode {
-                    RunMode::VerifyExisting => {
-                        engine::verify_existing(&target_for_thread, &mut reporter)
-                    }
+                    RunMode::VerifyExisting => engine::verify_existing_with_control(
+                        &target_for_thread,
+                        Some(&worker_token),
+                        Some(&worker_pause),
+                        &mut reporter,
+                    ),
                     RunMode::WriteOnly | RunMode::WriteVerify => {
                         let options = RunOptions {
                             target: &target_for_thread,
@@ -501,9 +504,12 @@ impl App {
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut reporter = TuiReporter::multi(index, tx);
                     let result = match mode {
-                        RunMode::VerifyExisting => {
-                            engine::verify_existing(&thread_target, &mut reporter)
-                        }
+                        RunMode::VerifyExisting => engine::verify_existing_with_control(
+                            &thread_target,
+                            Some(&thread_token),
+                            Some(&thread_pause),
+                            &mut reporter,
+                        ),
                         RunMode::WriteOnly | RunMode::WriteVerify => {
                             let options = RunOptions {
                                 target: &thread_target,

@@ -117,6 +117,14 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
         );
     }
 
+    if args.json {
+        println!("{}", json_results(&results));
+    } else {
+        for target in &results {
+            print_text_target(target);
+        }
+    }
+
     let export_dir = args.export.clone().unwrap_or_else(|| {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -131,24 +139,18 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
     for item in &results {
         if let Ok(result) = &item.result {
             let target = std::path::Path::new(&item.target);
-            exported +=
-                png_speed::write_speed_pngs(&export_dir, target, result, args.export_temperature)?
-                    .len();
+            match png_speed::write_speed_pngs(&export_dir, target, result, args.export_temperature)
+            {
+                Ok(files) => exported += files.len(),
+                Err(error) => eprintln!("warning: PNG export failed: {error:#}"),
+            }
         }
     }
-    if !args.json {
+    if !args.json && exported > 0 {
         eprintln!(
             "exported {exported} PNG file(s) to {}",
             export_dir.display()
         );
-    }
-
-    if args.json {
-        println!("{}", json_results(&results));
-    } else {
-        for target in &results {
-            print_text_target(target);
-        }
     }
     Ok(suite_exit_code(&results))
 }

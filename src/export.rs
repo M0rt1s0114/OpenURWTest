@@ -43,7 +43,7 @@ pub fn export(directory: &Path, input: &ExportInput<'_>) -> Result<Vec<PathBuf>>
     written.push(path);
 
     let path = directory.join(crate::png::quality_file_name(input.target));
-    crate::png::write_png(
+    match crate::png::write_png(
         &path,
         input.target,
         input.analysis,
@@ -52,8 +52,10 @@ pub fn export(directory: &Path, input: &ExportInput<'_>) -> Result<Vec<PathBuf>>
         } else {
             &[]
         },
-    )?;
-    written.push(path);
+    ) {
+        Ok(()) => written.push(path),
+        Err(error) => eprintln!("warning: PNG export failed: {error:#}"),
+    }
 
     Ok(written)
 }
