@@ -10,7 +10,7 @@ use crate::reporter::LineReporter;
 use crate::types::ProgressMode;
 use crate::volume::{self, VolumeInfo};
 
-pub fn run(console: &Console, progress: ProgressMode) -> Result<()> {
+pub fn run(console: &Console, progress: ProgressMode) -> Result<i32> {
     let volumes = volume::list_volumes();
     if volumes.is_empty() {
         bail!("no testable mounted volumes found");
@@ -43,7 +43,7 @@ pub fn run(console: &Console, progress: ProgressMode) -> Result<()> {
             "{} pass(es): {} passed, {} failed",
             summary.passes, summary.passed, summary.failed
         );
-        return Ok(());
+        return Ok(crate::summary_exit_code(&summary));
     }
     let verify = prompt_yes_no("Verify test data after writing?", true)?;
 
@@ -78,12 +78,12 @@ pub fn run(console: &Console, progress: ProgressMode) -> Result<()> {
         pause: None,
     };
     let mut reporter = LineReporter::new(console, progress);
-    let _summary = engine::run_os(&options, &mut reporter)?;
+    let summary = engine::run_os(&options, &mut reporter)?;
     println!();
     print!("Press Enter to exit...");
     io::stdout().flush()?;
     let _ = read_input();
-    Ok(())
+    Ok(crate::summary_exit_code(&summary))
 }
 
 fn print_details(volume: &VolumeInfo) {

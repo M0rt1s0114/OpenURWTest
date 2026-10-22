@@ -156,22 +156,29 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
 }
 
 fn suite_exit_code(results: &[TargetResult]) -> i32 {
-    let mut code = 0;
+    let mut failed = false;
+    let mut cancelled = false;
     for target in results {
         match &target.result {
-            Err(_) => code = code.max(1),
-            Ok(result) if result.cancelled => code = 130,
+            Err(_) => failed = true,
+            Ok(result) if result.cancelled => cancelled = true,
             Ok(result) => {
                 if result.error.is_some()
                     || result.stopped
                     || result.presets.iter().any(|preset| preset.failed())
                 {
-                    code = code.max(1);
+                    failed = true;
                 }
             }
         }
     }
-    code
+    if failed {
+        1
+    } else if cancelled {
+        130
+    } else {
+        0
+    }
 }
 
 fn selected_presets(values: &[String]) -> Result<Vec<SpeedPreset>> {
