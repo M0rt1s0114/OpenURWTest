@@ -33,9 +33,8 @@ pub(super) fn export_directory_for(target: &Path) -> PathBuf {
 }
 
 pub(super) fn display_width(text: &str) -> usize {
-    text.chars()
-        .map(|ch| if ch as u32 >= 0x2E80 { 2 } else { 1 })
-        .sum()
+    use unicode_width::UnicodeWidthStr;
+    text.width()
 }
 
 pub(super) fn pad_display(text: &str, width: usize) -> String {
