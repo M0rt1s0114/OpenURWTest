@@ -720,10 +720,75 @@ impl App {
         }
     }
 
+    fn compact_run_line(&self) -> Option<String> {
+        match self.screen {
+            Screen::Run => {
+                let run = self.run.as_ref()?;
+                let (bytes, total) = run
+                    .view
+                    .latest
+                    .map(|progress| (progress.bytes, progress.total_bytes))
+                    .unwrap_or((0, run.view.total.max(1)));
+                let percent = bytes.saturating_mul(100).checked_div(total).unwrap_or(0);
+                let state = if run.control.pause.is_paused() {
+                    "已暂停"
+                } else {
+                    "运行中"
+                };
+                Some(format!(
+                    "{}  {}%  {} / {}",
+                    state,
+                    percent,
+                    format_bytes(bytes),
+                    format_bytes(total)
+                ))
+            }
+            Screen::MultiRun => {
+                let multi = self.multi.as_ref()?;
+                let task = multi
+                    .tasks
+                    .get(multi.active.min(multi.tasks.len().saturating_sub(1)))?;
+                let (bytes, total) = if let Some(suite) = &task.suite {
+                    (suite.done_bytes, suite.total_bytes)
+                } else {
+                    task.view
+                        .latest
+                        .map(|progress| (progress.bytes, progress.total_bytes))
+                        .unwrap_or((0, task.view.total.max(1)))
+                };
+                let percent = bytes.saturating_mul(100).checked_div(total).unwrap_or(0);
+                let state = if task.control.pause.is_paused() {
+                    "已暂停"
+                } else {
+                    "运行中"
+                };
+                Some(format!(
+                    "{}  {}  {}%  {} / {}",
+                    state,
+                    task.label,
+                    percent,
+                    format_bytes(bytes),
+                    format_bytes(total)
+                ))
+            }
+            _ => None,
+        }
+    }
+
     fn render(&self, frame: &mut Frame) {
         self.hotspots.borrow_mut().clear();
         let area = frame.area();
         if area.width < 100 || area.height < 26 {
+            if let Some(line) = self.compact_run_line() {
+                frame.render_widget(Clear, area);
+                frame.render_widget(
+                    Paragraph::new(line)
+                        .alignment(ratatui::layout::Alignment::Center)
+                        .block(Block::bordered().title(" 运行中 ")),
+                    area,
+                );
+                return;
+            }
             frame.render_widget(Clear, area);
             frame.render_widget(
                 Paragraph::new(vec![

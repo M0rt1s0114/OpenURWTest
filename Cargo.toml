@@ -15,5 +15,6 @@ crossterm = "0.29.0"
 ctrlc = "3.4"
 libc = "0.2.189"
 ratatui = "0.30.2"
+unicode-width = "0.2"
 rust_xlsxwriter = "0.101.0"
 plotters = { version = "0.3.7", default-features = false, features = ["ab_glyph", "bitmap_backend", "bitmap_encoder", "line_series", "point_series"] }
