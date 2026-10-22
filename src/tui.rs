@@ -480,6 +480,7 @@ struct ResultsState {
     params: AnalysisParams,
     axis: Axis,
     message: String,
+    include_temperature: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -767,7 +768,7 @@ impl ResultsState {
             summary: &self.summary,
             analysis: &self.analysis,
             params: &self.params,
-            include_temperature: false,
+            include_temperature: self.include_temperature,
         };
         match export::export(&directory, &input) {
             Ok(files) => {

@@ -320,6 +320,7 @@ impl App {
             params,
             axis: Axis::Position,
             message,
+            include_temperature: report_temperature,
         });
         self.screen = Screen::Results;
         completion_notification(if success {
