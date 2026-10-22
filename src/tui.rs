@@ -881,27 +881,6 @@ impl ResultsState {
             ThresholdMode::Absolute => format!("absolute {:.0} MiB/s", self.params.absolute_mibps),
         }
     }
-
-    fn export(&mut self) {
-        let directory = export_directory_for(&self.target);
-        let input = ExportInput {
-            target: &self.target,
-            summary: &self.summary,
-            analysis: &self.analysis,
-            params: &self.params,
-            include_temperature: self.include_temperature,
-        };
-        match export::export(&directory, &input) {
-            Ok(files) => {
-                self.message = format!(
-                    "exported {} file(s) to {}",
-                    files.len(),
-                    directory.display()
-                )
-            }
-            Err(error) => self.message = format!("export failed: {error}"),
-        }
-    }
 }
 
 fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {

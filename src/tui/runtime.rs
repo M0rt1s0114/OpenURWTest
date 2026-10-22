@@ -248,6 +248,41 @@ impl App {
         }
     }
 
+    pub(super) fn export_results_async(&mut self) {
+        let Some(results) = &self.results else {
+            return;
+        };
+        let directory = export_directory_for(&results.target);
+        let target = results.target.clone();
+        let summary = results.summary.clone();
+        let params = results.params;
+        let include_temperature = results.include_temperature;
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let analysis = analysis::analyze(&summary.trace, &params);
+            let input = ExportInput {
+                target: &target,
+                summary: &summary,
+                analysis: &analysis,
+                params: &params,
+                include_temperature,
+            };
+            let message = match export::export(&directory, &input) {
+                Ok(files) => format!(
+                    "exported {} file(s) to {}",
+                    files.len(),
+                    directory.display()
+                ),
+                Err(error) => format!("export failed: {error}"),
+            };
+            let _ = tx.send(message);
+        });
+        self.export_rx = Some(rx);
+        if let Some(results) = self.results.as_mut() {
+            results.message = "export started in background".to_string();
+        }
+    }
+
     pub(super) fn finish_run(
         &mut self,
         summary: Summary,
@@ -257,7 +292,6 @@ impl App {
         target: PathBuf,
     ) {
         let params = AnalysisParams::default();
-        let analysis = analysis::analyze(&summary.trace, &params);
         let success = summary.failed == 0
             && summary.error_pass.is_none()
             && summary.data_errors == 0
@@ -272,10 +306,10 @@ impl App {
             let directory = export_directory_for(&target);
             let export_target = target.clone();
             let export_summary = summary.clone();
-            let export_analysis = analysis.clone();
             let export_params = params;
             let (tx, rx) = mpsc::channel();
             thread::spawn(move || {
+                let export_analysis = analysis::analyze(&export_summary.trace, &export_params);
                 let input = ExportInput {
                     target: &export_target,
                     summary: &export_summary,
@@ -304,10 +338,17 @@ impl App {
                 Err(error) => message.push_str(&format!("; delete failed: {error}")),
             }
         }
+        let analysis_summary = summary.clone();
+        let (analysis_tx, analysis_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let analysis = analysis::analyze(&analysis_summary.trace, &params);
+            let _ = analysis_tx.send(analysis);
+        });
+        self.analysis_rx = Some(analysis_rx);
         self.results = Some(ResultsState {
             target,
             summary,
-            analysis,
+            analysis: Analysis::default(),
             params,
             axis: Axis::Position,
             message,
