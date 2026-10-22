@@ -210,6 +210,7 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
     use rust_xlsxwriter::Workbook;
 
     let mut workbook = Workbook::new();
+    let mut truncated = false;
 
     {
         let sheet = workbook.add_worksheet();
@@ -273,6 +274,7 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
         for (index, sample) in input.analysis.samples.iter().enumerate() {
             let row = index as u32 + 1;
             if row >= EXCEL_MAX_ROWS {
+                truncated = true;
                 break;
             }
             sheet.write_number(row, 0, sample.pass as f64)?;
@@ -309,6 +311,7 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
         for (index, event) in input.analysis.events.iter().enumerate() {
             let row = index as u32 + 1;
             if row >= EXCEL_MAX_ROWS {
+                truncated = true;
                 break;
             }
             sheet.write_number(row, 0, event.pass as f64)?;
@@ -326,6 +329,9 @@ fn write_xlsx(path: &Path, input: &ExportInput<'_>) -> Result<()> {
     }
 
     workbook.save(path)?;
+    if truncated {
+        eprintln!("warning: XLSX rows exceeded the Excel limit; remaining rows were omitted");
+    }
     Ok(())
 }
 
