@@ -272,7 +272,10 @@ fn causal_baselines(
             continue;
         }
         let threshold = if in_slow {
-            reference * params.recovery_percent / 100.0
+            match params.mode {
+                ThresholdMode::Percent => reference * params.recovery_percent / 100.0,
+                ThresholdMode::Absolute => params.absolute_mibps,
+            }
         } else {
             threshold_for(reference, params)
         };
@@ -464,6 +467,23 @@ mod tests {
         let trace = trace_from_blocks(&[(100.0, 100), (10.0, 1), (100.0, 100)]);
         let analysis = analyze(&trace, &AnalysisParams::default());
         assert!(analysis.events.is_empty());
+    }
+
+    #[test]
+    fn absolute_mode_recovers_at_absolute_threshold() {
+        let trace = trace_from_blocks(&[(500.0, 10), (10.0, 100), (300.0, 1000)]);
+        let params = AnalysisParams {
+            mode: ThresholdMode::Absolute,
+            absolute_mibps: 80.0,
+            ..AnalysisParams::default()
+        };
+        let analysis = analyze(&trace, &params);
+        let event = analysis.events.first().expect("slow event");
+        assert!(
+            event.duration_ms < 12_000,
+            "absolute recovery used percent baseline: {} ms",
+            event.duration_ms
+        );
     }
 
     #[test]
