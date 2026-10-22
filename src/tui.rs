@@ -762,7 +762,7 @@ impl ResultsState {
     }
 
     fn export(&mut self) {
-        let directory = export_directory();
+        let directory = export_directory_for(&self.target);
         let input = ExportInput {
             target: &self.target,
             summary: &self.summary,

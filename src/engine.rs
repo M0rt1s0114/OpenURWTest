@@ -144,6 +144,7 @@ pub fn run(
         &run_start,
         &mut summary.temperature_history,
         &mut initial_temperature_attempt,
+        0,
     );
 
     reporter.run_started(options.target, passes, options.verify);
@@ -454,6 +455,7 @@ fn write_pass(
             &run_start,
             temperature_history,
             &mut last_temperature_attempt,
+            trace.points.last().map(|point| point.run_ms).unwrap_or(0),
         );
     }
 
@@ -577,6 +579,7 @@ fn verify_pass(
             &run_start,
             temperature_history,
             &mut last_temperature_attempt,
+            trace.points.last().map(|point| point.run_ms).unwrap_or(0),
         );
     }
 
@@ -593,6 +596,7 @@ fn sample_temperature(
     run_start: &Instant,
     history: &mut Vec<TemperatureSample>,
     last_attempt_ms: &mut Option<u64>,
+    timestamp_ms: u64,
 ) {
     let elapsed_ms = run_start.elapsed().as_millis() as u64;
     if last_attempt_ms.is_some_and(|last| elapsed_ms.saturating_sub(last) < TEMPERATURE_INTERVAL_MS)
@@ -602,7 +606,7 @@ fn sample_temperature(
     *last_attempt_ms = Some(elapsed_ms);
     if let Some(temperature_c) = health::read_health(target).temperature_c {
         history.push(TemperatureSample {
-            elapsed_ms,
+            elapsed_ms: timestamp_ms,
             temperature_c,
         });
     }

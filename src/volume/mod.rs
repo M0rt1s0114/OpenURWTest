@@ -87,6 +87,19 @@ pub fn find_volume(target: &Path) -> Option<VolumeInfo> {
         .find(|volume| normalize_existing_path(&volume.mount_point) == target)
 }
 
+/// Find the mounted volume containing a path (not necessarily its root).
+pub fn find_volume_containing(target: &Path) -> Option<VolumeInfo> {
+    let canonical = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    list_volumes()
+        .into_iter()
+        .filter(|volume| {
+            let root = std::fs::canonicalize(&volume.mount_point)
+                .unwrap_or_else(|_| volume.mount_point.clone());
+            canonical.starts_with(&root)
+        })
+        .max_by_key(|volume| volume.mount_point.as_os_str().len())
+}
+
 fn normalize_existing_path(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }

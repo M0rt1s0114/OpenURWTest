@@ -278,7 +278,7 @@ impl App {
             && !summary.device_lost;
         let mut message = String::new();
         if auto_export {
-            let directory = export_directory();
+            let directory = export_directory_for(&target);
             let export_target = target.clone();
             let export_summary = summary.clone();
             let export_analysis = analysis.clone();
@@ -1120,7 +1120,13 @@ impl App {
         let Some((kind, rows)) = self.multi_report_rows() else {
             return;
         };
-        let directory = export_directory().join("multi");
+        let target = self
+            .multi
+            .as_ref()
+            .and_then(|multi| multi.tasks.first())
+            .map(|task| task.target_path.clone())
+            .unwrap_or_default();
+        let directory = export_directory_for(&target).join("multi");
         let png_inputs = self.speed_png_inputs();
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
@@ -1153,7 +1159,13 @@ impl App {
         let Some((kind, rows)) = self.multi_report_rows() else {
             return;
         };
-        let directory = export_directory().join("multi");
+        let target = self
+            .multi
+            .as_ref()
+            .and_then(|multi| multi.tasks.first())
+            .map(|task| task.target_path.clone())
+            .unwrap_or_default();
+        let directory = export_directory_for(&target).join("multi");
         let mut count = 0usize;
         let mut error = None;
         match export::export_multi(&directory, kind, &rows) {
