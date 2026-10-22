@@ -67,16 +67,7 @@ impl App {
     }
 
     pub(super) fn cached_health(&self, mount: &std::path::Path) -> DriveHealth {
-        let mut cache = self.health_cache.borrow_mut();
-        if let Some((cached_mount, health, at)) = cache.as_ref()
-            && cached_mount == mount
-            && at.elapsed() < Duration::from_secs(10)
-        {
-            return *health;
-        }
-        let health = health::read_health(mount);
-        *cache = Some((mount.to_path_buf(), health, Instant::now()));
-        health
+        self.health_cache.get(mount)
     }
 
     pub(super) fn tick(&mut self) {

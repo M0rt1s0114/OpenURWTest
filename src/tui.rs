@@ -16,10 +16,12 @@ use mouse::{Hotspot, MouseAction, MouseGuard};
 use text::*;
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -43,7 +45,7 @@ use crate::console::format_bytes;
 use crate::engine::{self, PhaseStats, RunOptions, Summary};
 use crate::export::{self, ExportInput, MultiReportRow};
 use crate::format;
-use crate::health::{self, DriveHealth};
+use crate::health::DriveHealth;
 use crate::pause::PauseToken;
 use crate::png_speed;
 use crate::reporter::{ErrorInfo, ProgressInfo, Reporter};
@@ -650,6 +652,60 @@ struct SpeedState {
     focus: usize,
 }
 
+struct HealthCache {
+    values: Arc<Mutex<HashMap<PathBuf, DriveHealth>>>,
+    stop: Arc<AtomicBool>,
+}
+
+impl HealthCache {
+    fn new() -> Self {
+        let values = Arc::new(Mutex::new(HashMap::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        #[cfg(not(test))]
+        {
+            let values = Arc::clone(&values);
+            let stop = Arc::clone(&stop);
+            thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let refreshed: Vec<(PathBuf, DriveHealth)> = volume::list_volumes()
+                        .into_iter()
+                        .map(|volume| {
+                            let health = crate::health::read_health(&volume.mount_point);
+                            (volume.mount_point, health)
+                        })
+                        .collect();
+                    if let Ok(mut cache) = values.lock() {
+                        for (mount, health) in refreshed {
+                            cache.insert(mount, health);
+                        }
+                    }
+                    for _ in 0..100 {
+                        if stop.load(Ordering::SeqCst) {
+                            return;
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                }
+            });
+        }
+        Self { values, stop }
+    }
+
+    fn get(&self, mount: &std::path::Path) -> DriveHealth {
+        self.values
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(mount).copied())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for HealthCache {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
+
 struct App {
     theme: Theme,
     mouse_enabled: bool,
@@ -669,7 +725,7 @@ struct App {
     message: String,
     last_refresh: Instant,
     last_active_health_refresh: Instant,
-    health_cache: RefCell<Option<(PathBuf, DriveHealth, Instant)>>,
+    health_cache: HealthCache,
     settings: SettingsState,
     run: Option<RunState>,
     results: Option<ResultsState>,
@@ -708,7 +764,7 @@ impl App {
             message: String::new(),
             last_refresh: Instant::now(),
             last_active_health_refresh: Instant::now(),
-            health_cache: RefCell::new(None),
+            health_cache: HealthCache::new(),
             settings: SettingsState::new(Settings::default()),
             run: None,
             results: None,
