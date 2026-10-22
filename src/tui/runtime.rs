@@ -1058,7 +1058,9 @@ impl App {
                             let _ = tx_events.send((index, TuiEvent::Suite(Box::new(event))));
                         },
                     );
-                    let _ = std::fs::remove_file(thread_target.join("BENCH0001.DAT"));
+                    let _ = std::fs::remove_file(
+                        thread_target.join(crate::speed::suite::bench_file_name()),
+                    );
                     match result {
                         Ok(result) => {
                             let _ = tx.send((index, TuiEvent::SuiteFinished(Box::new(result))));

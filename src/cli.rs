@@ -118,6 +118,10 @@ pub struct SpeedArgs {
     #[arg(long)]
     pub export_temperature: bool,
 
+    /// Skip automatic PNG export for speed tests.
+    #[arg(long)]
+    pub no_export: bool,
+
     /// Print a JSON result.
     #[arg(long)]
     pub json: bool,

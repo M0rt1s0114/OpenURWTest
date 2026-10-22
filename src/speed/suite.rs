@@ -25,6 +25,10 @@ pub struct SpeedPreset {
     pub random: bool,
 }
 
+pub fn bench_file_name() -> String {
+    format!("BENCH{}.DAT", std::process::id())
+}
+
 pub const PRESETS: [SpeedPreset; 4] = [
     SpeedPreset {
         id: "SEQ1M_Q8T1",
@@ -171,7 +175,7 @@ pub fn run_suite(
         }
     }
 
-    let path = target.join("BENCH0001.DAT");
+    let path = target.join(bench_file_name());
     let mut result = SuiteResult {
         file_size: options.file_size,
         ..SuiteResult::default()
@@ -717,7 +721,7 @@ mod tests {
     #[test]
     fn sequential_verify_error_stops_the_suite() {
         let dir = temp_dir("seq-corrupt");
-        let path = dir.join("BENCH0001.DAT");
+        let path = dir.join(bench_file_name());
         let mut corrupted = false;
         let result = run_suite(
             &dir,
@@ -746,7 +750,7 @@ mod tests {
     #[test]
     fn random_verify_error_is_logged_but_does_not_stop() {
         let dir = temp_dir("rnd-corrupt");
-        let path = dir.join("BENCH0001.DAT");
+        let path = dir.join(bench_file_name());
         let mut corrupted = false;
         let result = run_suite(
             &dir,

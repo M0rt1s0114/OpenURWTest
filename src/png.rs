@@ -15,12 +15,22 @@ pub(super) const WIDTH: u32 = 1920;
 pub(super) const HEIGHT: u32 = 1080;
 
 pub fn drive_suffix(target: &Path) -> String {
-    target
-        .to_string_lossy()
-        .chars()
-        .find(|ch| ch.is_ascii_alphabetic())
-        .map(|ch| ch.to_ascii_uppercase().to_string())
-        .unwrap_or_else(|| "disk".to_string())
+    let path = target.to_string_lossy();
+    let Some(letter) = path.chars().find(|ch| ch.is_ascii_alphabetic()) else {
+        return "disk".to_string();
+    };
+    let mut suffix = letter.to_ascii_uppercase().to_string();
+    let trimmed = path.trim_end_matches(['\\', '/']);
+    let is_drive_path = trimmed.as_bytes().get(1) == Some(&b':');
+    if is_drive_path && trimmed.len() > 2 {
+        let mut hash = 0x811c_9dc5u32;
+        for byte in trimmed.to_ascii_lowercase().bytes() {
+            hash ^= u32::from(byte);
+            hash = hash.wrapping_mul(0x0100_0193);
+        }
+        suffix.push_str(&format!("_{hash:08x}"));
+    }
+    suffix
 }
 
 pub fn quality_file_name(target: &Path) -> String {
@@ -262,5 +272,13 @@ mod tests {
     #[test]
     fn drive_suffix_falls_back_for_non_drive_paths() {
         assert_eq!(drive_suffix(Path::new("tmp")), "T");
+    }
+
+    #[test]
+    fn subdirectories_get_distinct_suffixes() {
+        assert_ne!(
+            quality_file_name(Path::new("E:\\a")),
+            quality_file_name(Path::new("E:\\b"))
+        );
     }
 }

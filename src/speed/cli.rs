@@ -100,7 +100,7 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
                 }
             })
             .map_err(|error| format!("{error:#}"));
-            let _ = std::fs::remove_file(target.join("BENCH0001.DAT"));
+            let _ = std::fs::remove_file(target.join(crate::speed::suite::bench_file_name()));
             TargetResult {
                 target: target.display().to_string(),
                 result,
@@ -125,6 +125,9 @@ pub fn run(args: &SpeedArgs) -> Result<i32> {
         }
     }
 
+    if args.no_export {
+        return Ok(suite_exit_code(&results));
+    }
     let export_dir = args.export.clone().unwrap_or_else(|| {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
