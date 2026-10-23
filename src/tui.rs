@@ -16,7 +16,7 @@ use mouse::{Hotspot, MouseAction, MouseGuard};
 use text::*;
 
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,6 +60,9 @@ use crate::volume::{self, VolumeInfo};
 type SpeedSeries = Vec<(String, Vec<(u64, f64)>, ratatui::style::Color)>;
 
 fn completion_notification(title: &str) {
+    if std::env::var_os("NO_BELL").is_some() || std::env::var_os("URWTEST_NO_BELL").is_some() {
+        return;
+    }
     let _ = title;
     #[cfg(not(test))]
     {
@@ -478,7 +481,8 @@ struct RunState {
 struct ResultsState {
     target: PathBuf,
     summary: Summary,
-    analysis: Analysis,
+    analysis: Option<Analysis>,
+    generation: u64,
     params: AnalysisParams,
     axis: Axis,
     message: String,
@@ -654,30 +658,33 @@ struct SpeedState {
 
 struct HealthCache {
     values: Arc<Mutex<HashMap<PathBuf, DriveHealth>>>,
+    focus: Arc<Mutex<HashSet<PathBuf>>>,
     stop: Arc<AtomicBool>,
 }
 
 impl HealthCache {
     fn new() -> Self {
         let values = Arc::new(Mutex::new(HashMap::new()));
+        let focus = Arc::new(Mutex::new(HashSet::new()));
         let stop = Arc::new(AtomicBool::new(false));
         #[cfg(not(test))]
         {
             let values = Arc::clone(&values);
+            let focus = Arc::clone(&focus);
             let stop = Arc::clone(&stop);
             thread::spawn(move || {
                 while !stop.load(Ordering::SeqCst) {
-                    let refreshed: Vec<(PathBuf, DriveHealth)> = volume::list_volumes()
-                        .into_iter()
-                        .map(|volume| {
-                            let health = crate::health::read_health(&volume.mount_point);
-                            (volume.mount_point, health)
-                        })
-                        .collect();
+                    let targets: Vec<PathBuf> = focus
+                        .lock()
+                        .map(|focus| focus.iter().cloned().collect())
+                        .unwrap_or_default();
+                    let mut refreshed = HashMap::new();
+                    for mount in targets {
+                        let health = crate::health::read_health(&mount);
+                        refreshed.insert(mount, health);
+                    }
                     if let Ok(mut cache) = values.lock() {
-                        for (mount, health) in refreshed {
-                            cache.insert(mount, health);
-                        }
+                        *cache = refreshed;
                     }
                     for _ in 0..100 {
                         if stop.load(Ordering::SeqCst) {
@@ -688,7 +695,17 @@ impl HealthCache {
                 }
             });
         }
-        Self { values, stop }
+        Self {
+            values,
+            focus,
+            stop,
+        }
+    }
+
+    fn set_focus(&self, targets: Vec<PathBuf>) {
+        if let Ok(mut focus) = self.focus.lock() {
+            *focus = targets.into_iter().collect();
+        }
     }
 
     fn get(&self, mount: &std::path::Path) -> DriveHealth {
@@ -731,7 +748,9 @@ struct App {
     results: Option<ResultsState>,
     export_rx: Option<mpsc::Receiver<String>>,
     multi_export_rx: Option<mpsc::Receiver<String>>,
-    analysis_rx: Option<mpsc::Receiver<crate::analysis::Analysis>>,
+    analysis_rx: Option<mpsc::Receiver<(u64, crate::analysis::Analysis)>>,
+    rescan_rx: Option<mpsc::Receiver<Vec<VolumeInfo>>>,
+    analysis_generation: u64,
     analysis_pending: bool,
     cancel_pending: bool,
 }
@@ -771,6 +790,8 @@ impl App {
             export_rx: None,
             multi_export_rx: None,
             analysis_rx: None,
+            rescan_rx: None,
+            analysis_generation: 0,
             analysis_pending: false,
             cancel_pending: false,
         }
@@ -835,10 +856,36 @@ impl App {
         self.hotspots.borrow_mut().clear();
         let area = frame.area();
         if area.width < 100 || area.height < 26 {
-            if let Some(line) = self.compact_run_line() {
+            let mut lines: Vec<Line> = Vec::new();
+            let multi_cancel = self.multi.as_ref().is_some_and(|multi| multi.cancel_menu);
+            if self.screen == Screen::Run && self.cancel_pending {
+                lines.push(Line::from("确认取消当前测试？"));
+                lines.push(Line::from("Enter / y 取消    Esc / n 返回"));
+            } else if self.screen == Screen::MultiRun && multi_cancel {
+                let multiple = self
+                    .multi
+                    .as_ref()
+                    .is_some_and(|multi| multi.tasks.len() > 1);
+                lines.push(Line::from("停止测试？"));
+                if multiple {
+                    lines.push(Line::from(
+                        "1 / Enter 当前盘    2 / S 全部盘    Esc / 3 返回",
+                    ));
+                } else {
+                    lines.push(Line::from("Enter 停止    Esc 返回"));
+                }
+            } else if let Some(line) = self.compact_run_line() {
+                lines.push(Line::from(line));
+                if self.screen == Screen::MultiRun {
+                    lines.push(Line::from("p 暂停/继续    Tab 切换    Esc 停止菜单"));
+                } else {
+                    lines.push(Line::from("p 暂停/继续    Esc 取消"));
+                }
+            }
+            if !lines.is_empty() {
                 frame.render_widget(Clear, area);
                 frame.render_widget(
-                    Paragraph::new(line)
+                    Paragraph::new(lines)
                         .alignment(ratatui::layout::Alignment::Center)
                         .block(Block::bordered().title(" 运行中 ")),
                     area,

@@ -22,9 +22,14 @@ pub fn drive_suffix(target: &Path) -> String {
     let mut suffix = letter.to_ascii_uppercase().to_string();
     let trimmed = path.trim_end_matches(['\\', '/']);
     let is_drive_path = trimmed.as_bytes().get(1) == Some(&b':');
-    if is_drive_path && trimmed.len() > 2 {
+    if (is_drive_path && trimmed.len() > 2) || trimmed.contains(['/', '\\']) {
         let mut hash = 0x811c_9dc5u32;
-        for byte in trimmed.to_ascii_lowercase().bytes() {
+        let hash_path = if cfg!(windows) {
+            trimmed.to_ascii_lowercase()
+        } else {
+            trimmed.to_string()
+        };
+        for byte in hash_path.bytes() {
             hash ^= u32::from(byte);
             hash = hash.wrapping_mul(0x0100_0193);
         }
@@ -41,26 +46,9 @@ static FONT_INIT: Once = Once::new();
 
 pub(super) fn ensure_font() {
     FONT_INIT.call_once(|| {
-        let candidates: &[&str] = if cfg!(windows) {
-            &[
-                r"C:\Windows\Fonts\msyh.ttc",
-                r"C:\Windows\Fonts\simhei.ttf",
-                r"C:\Windows\Fonts\arial.ttf",
-            ]
-        } else {
-            &[
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/TTF/DejaVuSans.ttf",
-            ]
-        };
-        for candidate in candidates {
-            if let Ok(bytes) = std::fs::read(candidate) {
-                let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
-                let _ = register_font("sans-serif", FontStyle::Normal, leaked);
-                let _ = register_font("sans-serif", FontStyle::Bold, leaked);
-                return;
-            }
-        }
+        let bytes = include_bytes!("../assets/DejaVuSansMono.ttf");
+        let _ = register_font("sans-serif", FontStyle::Normal, bytes);
+        let _ = register_font("sans-serif", FontStyle::Bold, bytes);
     });
 }
 
@@ -156,7 +144,7 @@ pub fn write_quality_png(
     };
     let chart = ChartBuilder::on(&root)
         .caption(
-            format!("{} 速度与温度", drive_suffix(target)),
+            format!("{} speed and temperature", drive_suffix(target)),
             ("sans-serif", 32),
         )
         .margin(24)
@@ -175,7 +163,7 @@ pub fn write_quality_png(
     if !temperature.is_empty() {
         chart
             .configure_secondary_axes()
-            .y_desc("温度 (C)")
+            .y_desc("Temperature (C)")
             .draw()
             .map_err(draw_error)?;
     }
@@ -280,5 +268,20 @@ mod tests {
             quality_file_name(Path::new("E:\\a")),
             quality_file_name(Path::new("E:\\b"))
         );
+        assert_ne!(
+            quality_file_name(Path::new("/mnt/a")),
+            quality_file_name(Path::new("/mnt/b"))
+        );
+    }
+
+    #[test]
+    fn embedded_font_can_render_png_text() {
+        let path =
+            std::env::temp_dir().join(format!("urwtest-font-test-{}.png", std::process::id()));
+        write_quality_png(&path, Path::new("E:\\"), &Analysis::default(), &[])
+            .expect("quality png");
+        let bytes = std::fs::read(&path).expect("png bytes");
+        assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']));
+        let _ = std::fs::remove_file(&path);
     }
 }

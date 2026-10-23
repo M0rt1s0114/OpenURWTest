@@ -11,6 +11,8 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -100,6 +102,7 @@ pub struct Summary {
     pub write_only: bool,
     pub trace: RunTrace,
     pub temperature_history: Vec<TemperatureSample>,
+    pub pauses: Vec<(u64, u64)>,
 }
 
 impl Summary {
@@ -138,14 +141,8 @@ pub fn run(
         ..Summary::default()
     };
     let run_start = Instant::now();
-    let mut initial_temperature_attempt = None;
-    sample_temperature(
-        options.target,
-        &run_start,
-        &mut summary.temperature_history,
-        &mut initial_temperature_attempt,
-        0,
-    );
+    let temperature = TemperatureSampler::start(options.target.to_path_buf(), run_start);
+    let pause_log = PauseRecorder::start(options.pause.clone(), run_start);
 
     reporter.run_started(options.target, passes, options.verify);
 
@@ -169,7 +166,6 @@ pub fn run(
                 options.cancel.as_ref(),
                 options.pause.as_ref(),
                 &mut summary.trace,
-                &mut summary.temperature_history,
                 run_start,
             )?;
             summary.wrote_bytes += stats.bytes;
@@ -183,12 +179,16 @@ pub fn run(
                     summary.error_pass = Some(pass);
                 }
                 reporter.info("Write stopped; test data kept on the volume.");
+                summary.temperature_history = temperature.finish();
+                summary.pauses = pause_log.finish();
                 reporter.finished(&summary);
                 return Ok(summary);
             }
 
             if !options.verify {
                 summary.write_only = true;
+                summary.temperature_history = temperature.finish();
+                summary.pauses = pause_log.finish();
                 reporter.finished(&summary);
                 return Ok(summary);
             }
@@ -202,7 +202,6 @@ pub fn run(
             options.cancel.as_ref(),
             options.pause.as_ref(),
             &mut summary.trace,
-            &mut summary.temperature_history,
             run_start,
         )?;
         summary.read_bytes += stats.bytes;
@@ -217,6 +216,8 @@ pub fn run(
             } else {
                 summary.passed += 1;
             }
+            summary.temperature_history = temperature.finish();
+            summary.pauses = pause_log.finish();
             reporter.finished(&summary);
             return Ok(summary);
         }
@@ -242,6 +243,8 @@ pub fn run(
         }
     }
 
+    summary.temperature_history = temperature.finish();
+    summary.pauses = pause_log.finish();
     reporter.finished(&summary);
     Ok(summary)
 }
@@ -262,6 +265,7 @@ pub fn verify_existing_with_control(
         ..Summary::default()
     };
     let run_start = Instant::now();
+    let pause_log = PauseRecorder::start(pause.cloned(), run_start);
 
     reporter.run_started(target, 1, true);
     reporter.pass_started(1, 1);
@@ -274,7 +278,6 @@ pub fn verify_existing_with_control(
         cancel,
         pause,
         &mut summary.trace,
-        &mut Vec::new(),
         run_start,
     )?;
     summary.read_bytes = stats.bytes;
@@ -289,6 +292,7 @@ pub fn verify_existing_with_control(
         summary.passed = 1;
     }
 
+    summary.pauses = pause_log.finish();
     reporter.finished(&summary);
     Ok(summary)
 }
@@ -364,7 +368,6 @@ fn write_pass(
     cancel: Option<&CancelToken>,
     pause: Option<&PauseToken>,
     trace: &mut RunTrace,
-    temperature_history: &mut Vec<TemperatureSample>,
     run_start: Instant,
 ) -> Result<PhaseStats> {
     let start_free = space.free_bytes(target)?;
@@ -389,7 +392,6 @@ fn write_pass(
     let mut device_lost = false;
     let mut write_errors = 0u64;
     let mut clock = PhaseProgress::new(pass, passes, Phase::Write, start_free);
-    let mut last_temperature_attempt = None;
     let mut paused_total = Duration::ZERO;
 
     loop {
@@ -450,13 +452,6 @@ fn write_pass(
         }
 
         clock.tick(reporter, blocks * BLOCK_SIZE);
-        sample_temperature(
-            target,
-            &run_start,
-            temperature_history,
-            &mut last_temperature_attempt,
-            trace.points.last().map(|point| point.run_ms).unwrap_or(0),
-        );
     }
 
     drop(file);
@@ -484,7 +479,6 @@ fn verify_pass(
     cancel: Option<&CancelToken>,
     pause: Option<&PauseToken>,
     trace: &mut RunTrace,
-    temperature_history: &mut Vec<TemperatureSample>,
     run_start: Instant,
 ) -> Result<PhaseStats> {
     let files = format::scan_test_files(target)?;
@@ -507,7 +501,6 @@ fn verify_pass(
     let mut stats = PhaseStats::default();
     let mut verified = 0u64;
     let mut clock = PhaseProgress::new(pass, passes, Phase::Verify, total_bytes);
-    let mut last_temperature_attempt = None;
     let mut paused_total = Duration::ZERO;
 
     for block in 0..total {
@@ -574,13 +567,6 @@ fn verify_pass(
         }
 
         clock.tick(reporter, verified * BLOCK_SIZE);
-        sample_temperature(
-            target,
-            &run_start,
-            temperature_history,
-            &mut last_temperature_attempt,
-            trace.points.last().map(|point| point.run_ms).unwrap_or(0),
-        );
     }
 
     stats.bytes = verified * BLOCK_SIZE;
@@ -591,24 +577,150 @@ fn verify_pass(
 
 const TEMPERATURE_INTERVAL_MS: u64 = 30_000;
 
-fn sample_temperature(
-    target: &Path,
-    run_start: &Instant,
-    history: &mut Vec<TemperatureSample>,
-    last_attempt_ms: &mut Option<u64>,
-    timestamp_ms: u64,
-) {
-    let elapsed_ms = run_start.elapsed().as_millis() as u64;
-    if last_attempt_ms.is_some_and(|last| elapsed_ms.saturating_sub(last) < TEMPERATURE_INTERVAL_MS)
-    {
-        return;
-    }
-    *last_attempt_ms = Some(elapsed_ms);
-    if let Some(temperature_c) = health::read_health(target).temperature_c {
-        history.push(TemperatureSample {
-            elapsed_ms: timestamp_ms,
-            temperature_c,
+struct TemperatureSampler {
+    stop: Arc<AtomicBool>,
+    history: Arc<Mutex<Vec<TemperatureSample>>>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl TemperatureSampler {
+    fn start(target: std::path::PathBuf, run_start: Instant) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let history = Arc::new(Mutex::new(Vec::new()));
+        if let Some(temperature_c) = health::read_health(&target).temperature_c {
+            history
+                .lock()
+                .expect("temperature history")
+                .push(TemperatureSample {
+                    elapsed_ms: 0,
+                    temperature_c,
+                });
+        }
+        let worker_stop = Arc::clone(&stop);
+        let worker_history = Arc::clone(&history);
+        let handle = thread::spawn(move || {
+            let mut last_attempt: Option<Instant> = Some(Instant::now());
+            while !worker_stop.load(Ordering::SeqCst) {
+                let now = Instant::now();
+                if last_attempt.is_none_or(|last| {
+                    now.duration_since(last) >= Duration::from_millis(TEMPERATURE_INTERVAL_MS)
+                }) {
+                    last_attempt = Some(now);
+                    if let Some(temperature_c) = health::read_health(&target).temperature_c
+                        && let Ok(mut samples) = worker_history.lock()
+                    {
+                        samples.push(TemperatureSample {
+                            elapsed_ms: run_start.elapsed().as_millis() as u64,
+                            temperature_c,
+                        });
+                    }
+                }
+                for _ in 0..100 {
+                    if worker_stop.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
         });
+        Self {
+            stop,
+            history,
+            handle: Some(handle),
+        }
+    }
+
+    fn finish(mut self) -> Vec<TemperatureSample> {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        self.history
+            .lock()
+            .map(|samples| samples.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for TemperatureSampler {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+struct PauseRecorder {
+    stop: Arc<AtomicBool>,
+    pauses: Arc<Mutex<Vec<(u64, u64)>>>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl PauseRecorder {
+    fn start(pause: Option<PauseToken>, run_start: Instant) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let pauses = Arc::new(Mutex::new(Vec::new()));
+        let Some(pause) = pause else {
+            return Self {
+                stop,
+                pauses,
+                handle: None,
+            };
+        };
+        let worker_stop = Arc::clone(&stop);
+        let worker_pauses = Arc::clone(&pauses);
+        let handle = thread::spawn(move || {
+            let mut paused_at: Option<Instant> = None;
+            while !worker_stop.load(Ordering::SeqCst) {
+                let paused = pause.is_paused();
+                if paused && paused_at.is_none() {
+                    paused_at = Some(Instant::now());
+                } else if !paused
+                    && let Some(started) = paused_at.take()
+                    && let Ok(mut spans) = worker_pauses.lock()
+                {
+                    spans.push((
+                        started.duration_since(run_start).as_millis() as u64,
+                        run_start.elapsed().as_millis() as u64,
+                    ));
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            if let Some(started) = paused_at
+                && let Ok(mut spans) = worker_pauses.lock()
+            {
+                spans.push((
+                    started.duration_since(run_start).as_millis() as u64,
+                    run_start.elapsed().as_millis() as u64,
+                ));
+            }
+        });
+        Self {
+            stop,
+            pauses,
+            handle: Some(handle),
+        }
+    }
+
+    fn finish(mut self) -> Vec<(u64, u64)> {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        self.pauses
+            .lock()
+            .map(|spans| spans.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for PauseRecorder {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -741,7 +853,6 @@ mod tests {
             None,
             None,
             &mut trace,
-            &mut Vec::new(),
             Instant::now(),
         )
         .expect("write pass");
@@ -768,7 +879,6 @@ mod tests {
             None,
             None,
             &mut trace,
-            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify pass");
@@ -798,7 +908,6 @@ mod tests {
             None,
             None,
             &mut trace,
-            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify pass");
@@ -870,7 +979,6 @@ mod tests {
             None,
             None,
             &mut trace,
-            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify kept data");
@@ -915,7 +1023,6 @@ mod tests {
             None,
             None,
             &mut trace,
-            &mut Vec::new(),
             Instant::now(),
         )
         .expect("write pass");
@@ -941,7 +1048,6 @@ mod tests {
             None,
             None,
             &mut trace,
-            &mut Vec::new(),
             Instant::now(),
         )
         .expect("verify pass");
@@ -1031,7 +1137,9 @@ mod tests {
         assert!(!handle.is_finished());
         pause.resume();
         let (result, directory) = handle.join().expect("pause thread");
-        assert_eq!(result.expect("run").passed, 1);
+        let summary = result.expect("run");
+        assert_eq!(summary.passed, 1);
+        assert!(!summary.pauses.is_empty(), "pause span was not recorded");
         let _ = std::fs::remove_dir_all(&directory);
     }
 }

@@ -16,6 +16,17 @@ impl App {
     }
 
     pub(super) fn rescan(&mut self) {
+        if self.rescan_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(volume::list_volumes());
+        });
+        self.rescan_rx = Some(rx);
+    }
+
+    fn apply_rescan(&mut self, volumes: Vec<VolumeInfo>) {
         let current = self
             .volumes
             .get(self.selected)
@@ -25,7 +36,7 @@ impl App {
             .iter()
             .map(|volume| volume.mount_point.clone())
             .collect();
-        self.volumes = volume::list_volumes();
+        self.volumes = volumes;
         let added: Vec<String> = self
             .volumes
             .iter()
@@ -66,11 +77,37 @@ impl App {
         self.last_refresh = Instant::now();
     }
 
+    fn update_health_focus(&self) {
+        let mut targets = Vec::new();
+        if let Some(volume) = self.volumes.get(self.selected) {
+            targets.push(volume.mount_point.clone());
+        }
+        if let Some(run) = &self.run {
+            targets.push(run.target_path.clone());
+        }
+        if let Some(multi) = &self.multi {
+            for task in &multi.tasks {
+                if task.status == TaskStatus::Running {
+                    targets.push(task.target_path.clone());
+                }
+            }
+        }
+        self.health_cache.set_focus(targets);
+    }
+
     pub(super) fn cached_health(&self, mount: &std::path::Path) -> DriveHealth {
         self.health_cache.get(mount)
     }
 
     pub(super) fn tick(&mut self) {
+        if let Some(rx) = self.rescan_rx.take() {
+            match rx.try_recv() {
+                Ok(volumes) => self.apply_rescan(volumes),
+                Err(mpsc::TryRecvError::Empty) => self.rescan_rx = Some(rx),
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
+        self.update_health_focus();
         if self.screen == Screen::Home && self.last_refresh.elapsed() >= Duration::from_secs(5) {
             self.rescan();
         }
@@ -207,9 +244,11 @@ impl App {
         let mut analysis_finished = false;
         if let Some(rx) = self.analysis_rx.take() {
             match rx.try_recv() {
-                Ok(analysis) => {
-                    if let Some(results) = self.results.as_mut() {
-                        results.analysis = analysis;
+                Ok((generation, analysis)) => {
+                    if let Some(results) = self.results.as_mut()
+                        && results.generation == generation
+                    {
+                        results.analysis = Some(analysis);
                         results.message = "thresholds recalculated".to_string();
                     }
                     analysis_finished = true;
@@ -237,13 +276,16 @@ impl App {
         };
         let summary = results.summary.clone();
         let params = results.params;
+        self.analysis_generation += 1;
+        let generation = self.analysis_generation;
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let analysis = analysis::analyze(&summary.trace, &params);
-            let _ = tx.send(analysis);
+            let _ = tx.send((generation, analysis));
         });
         self.analysis_rx = Some(rx);
         if let Some(results) = self.results.as_mut() {
+            results.generation = generation;
             results.message = "recalculating thresholds...".to_string();
         }
     }
@@ -339,16 +381,19 @@ impl App {
             }
         }
         let analysis_summary = summary.clone();
+        self.analysis_generation += 1;
+        let generation = self.analysis_generation;
         let (analysis_tx, analysis_rx) = mpsc::channel();
         thread::spawn(move || {
             let analysis = analysis::analyze(&analysis_summary.trace, &params);
-            let _ = analysis_tx.send(analysis);
+            let _ = analysis_tx.send((generation, analysis));
         });
         self.analysis_rx = Some(analysis_rx);
         self.results = Some(ResultsState {
             target,
             summary,
-            analysis: Analysis::default(),
+            analysis: None,
+            generation,
             params,
             axis: Axis::Position,
             message,

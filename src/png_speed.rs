@@ -98,9 +98,9 @@ fn write_speed_png(
                 "{} {}",
                 drive_suffix(target),
                 if random {
-                    "随机读写"
+                    "Random read/write"
                 } else {
-                    "顺序读写"
+                    "Sequential read/write"
                 }
             ),
             ("sans-serif", 32),
@@ -114,14 +114,14 @@ fn write_speed_png(
     let mut chart = chart.set_secondary_coord(0.0f64..max_x, min_temp..max_temp);
     chart
         .configure_mesh()
-        .x_desc("文件位置 (MiB)")
+        .x_desc("File position (MiB)")
         .y_desc("MiB/s")
         .draw()
         .map_err(draw_error)?;
     if !temperatures.is_empty() {
         chart
             .configure_secondary_axes()
-            .y_desc("温度 (C)")
+            .y_desc("Temperature (C)")
             .draw()
             .map_err(draw_error)?;
     }

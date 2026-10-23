@@ -1,9 +1,9 @@
 //! CrystalDiskMark-style speed suite: write, read back, verify.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use crate::health;
 use crate::io::AlignedBlock;
 use crate::pause::PauseToken;
-use crate::speed::backend::{open_bench_file, prepare_file};
+use crate::speed::backend::{cleanup_stale_bench_files, open_bench_file, prepare_file};
 use crate::speed::metrics::{Counters, MetricsSnapshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +26,11 @@ pub struct SpeedPreset {
 }
 
 pub fn bench_file_name() -> String {
-    format!("BENCH{}.DAT", std::process::id())
+    format!("URW_BENCH_{}.DAT", std::process::id())
+}
+
+pub fn bench_file_prefix() -> &'static str {
+    "URW_BENCH_"
 }
 
 pub const PRESETS: [SpeedPreset; 4] = [
@@ -175,6 +179,7 @@ pub fn run_suite(
         }
     }
 
+    cleanup_stale_bench_files(target);
     let path = target.join(bench_file_name());
     let mut result = SuiteResult {
         file_size: options.file_size,
@@ -318,6 +323,7 @@ struct WorkerOutcome {
     read_errors: u64,
     verify_errors: u64,
     cpu_ns: u128,
+    finished_at: Instant,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -346,7 +352,7 @@ fn run_phase(
     let done = Arc::new(AtomicU64::new(0));
     let stop = Arc::new(AtomicBool::new(false));
     let (error_tx, error_rx) = mpsc::channel();
-    let start = Instant::now();
+    let barrier = Arc::new(Barrier::new(workers + 1));
     let strict = !preset.random && !ignore_sequential_errors;
 
     observer(SuiteEvent::PhaseStarted { index, phase });
@@ -359,6 +365,7 @@ fn run_phase(
         let cancel = Arc::clone(cancel);
         let pause = pause.cloned();
         let error_tx = error_tx.clone();
+        let barrier = Arc::clone(&barrier);
         let block_size = preset.block_size;
         let is_read = phase == SuitePhase::Verify;
         handles.push(thread::spawn(move || {
@@ -376,10 +383,13 @@ fn run_phase(
                 &error_tx,
                 seed,
                 pause.as_ref(),
+                &barrier,
             )
         }));
     }
     drop(error_tx);
+    barrier.wait();
+    let start = Instant::now();
 
     let mut last = Duration::ZERO;
     let mut last_bytes = 0u64;
@@ -460,6 +470,7 @@ fn run_phase(
     let mut read_errors = 0u64;
     let mut verify_errors = 0u64;
     let mut cpu_ns = 0u128;
+    let mut finished_at: Option<Instant> = None;
     let mut stopped_at = None;
     for handle in handles {
         let outcome = handle
@@ -470,14 +481,24 @@ fn run_phase(
         read_errors += outcome.read_errors;
         verify_errors += outcome.verify_errors;
         cpu_ns += outcome.cpu_ns;
+        finished_at = Some(match finished_at {
+            Some(current) if current > outcome.finished_at => current,
+            _ => outcome.finished_at,
+        });
     }
     if strict && errors_logged > 0 {
         stopped_at = first_error;
     }
-    let elapsed = start.elapsed().saturating_sub(paused_total);
-    let cpu_wall =
-        Duration::from_nanos((cpu_ns / workers.max(1) as u128).min(u64::MAX as u128) as u64);
-    let effective_elapsed = elapsed.saturating_sub(cpu_wall);
+    let elapsed = finished_at
+        .unwrap_or_else(Instant::now)
+        .saturating_duration_since(start)
+        .saturating_sub(paused_total);
+    let cpu_wall = if workers == 1 {
+        Duration::from_nanos(cpu_ns.min(u64::MAX as u128) as u64)
+    } else {
+        Duration::ZERO
+    };
+    let effective_elapsed = elapsed.saturating_sub(cpu_wall).max(elapsed / 2);
     let metrics = counters.snapshot(effective_elapsed);
     Ok(PhaseOutcome {
         metrics,
@@ -506,11 +527,19 @@ fn worker_loop(
     error_tx: &mpsc::Sender<WorkerError>,
     seed: u64,
     pause: Option<&PauseToken>,
+    barrier: &Barrier,
 ) -> Result<WorkerOutcome> {
-    let mut file = open_bench_file(path, true)
-        .with_context(|| format!("failed to open benchmark file {}", path.display()))?;
+    let mut file = match open_bench_file(path, true) {
+        Ok(file) => file,
+        Err(error) => {
+            barrier.wait();
+            return Err(error)
+                .with_context(|| format!("failed to open benchmark file {}", path.display()));
+        }
+    };
     let mut actual = AlignedBlock::new(block_size as usize);
     let mut expected = AlignedBlock::new(block_size as usize);
+    barrier.wait();
     let mut counters = Counters::default();
     let mut write_errors = 0u64;
     let mut read_errors = 0u64;
@@ -593,6 +622,7 @@ fn worker_loop(
         read_errors,
         verify_errors,
         cpu_ns,
+        finished_at: Instant::now(),
     })
 }
 
@@ -719,6 +749,19 @@ mod tests {
         assert_eq!(item.write.total_bytes, 64 * 1024);
         assert_eq!(item.read.total_bytes, 64 * 1024);
         assert_eq!(item.verify_errors, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cleanup_removes_only_stale_bench_files() {
+        let dir = temp_dir("bench-cleanup");
+        let stale = dir.join("URW_BENCH_999999.DAT");
+        let unrelated = dir.join("other.DAT");
+        std::fs::write(&stale, b"stale").expect("stale file");
+        std::fs::write(&unrelated, b"keep").expect("unrelated file");
+        cleanup_stale_bench_files(&dir);
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
