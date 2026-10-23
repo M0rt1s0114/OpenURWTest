@@ -673,20 +673,28 @@ impl HealthCache {
             let focus = Arc::clone(&focus);
             let stop = Arc::clone(&stop);
             thread::spawn(move || {
+                let mut last_targets: HashSet<PathBuf> = HashSet::new();
+                let mut last_refresh: Option<Instant> = None;
                 while !stop.load(Ordering::SeqCst) {
-                    let targets: Vec<PathBuf> = focus
+                    let targets: HashSet<PathBuf> = focus
                         .lock()
                         .map(|focus| focus.iter().cloned().collect())
                         .unwrap_or_default();
-                    let mut refreshed = HashMap::new();
-                    for mount in targets {
-                        let health = crate::health::read_health(&mount);
-                        refreshed.insert(mount, health);
+                    let changed = targets != last_targets;
+                    let due = last_refresh.is_none_or(|at| at.elapsed() >= Duration::from_secs(10));
+                    if changed || due {
+                        let mut refreshed = HashMap::new();
+                        for mount in &targets {
+                            let health = crate::health::read_health(mount);
+                            refreshed.insert(mount.clone(), health);
+                        }
+                        if let Ok(mut cache) = values.lock() {
+                            *cache = refreshed;
+                        }
+                        last_targets = targets;
+                        last_refresh = Some(Instant::now());
                     }
-                    if let Ok(mut cache) = values.lock() {
-                        *cache = refreshed;
-                    }
-                    for _ in 0..100 {
+                    for _ in 0..10 {
                         if stop.load(Ordering::SeqCst) {
                             return;
                         }
