@@ -66,11 +66,30 @@ impl App {
         self.last_refresh = Instant::now();
     }
 
+    fn update_health_focus(&self) {
+        let mut targets = Vec::new();
+        if let Some(volume) = self.volumes.get(self.selected) {
+            targets.push(volume.mount_point.clone());
+        }
+        if let Some(run) = &self.run {
+            targets.push(run.target_path.clone());
+        }
+        if let Some(multi) = &self.multi {
+            for task in &multi.tasks {
+                if task.status == TaskStatus::Running {
+                    targets.push(task.target_path.clone());
+                }
+            }
+        }
+        self.health_cache.set_focus(targets);
+    }
+
     pub(super) fn cached_health(&self, mount: &std::path::Path) -> DriveHealth {
         self.health_cache.get(mount)
     }
 
     pub(super) fn tick(&mut self) {
+        self.update_health_focus();
         if self.screen == Screen::Home && self.last_refresh.elapsed() >= Duration::from_secs(5) {
             self.rescan();
         }

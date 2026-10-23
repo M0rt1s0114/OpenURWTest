@@ -16,7 +16,7 @@ use mouse::{Hotspot, MouseAction, MouseGuard};
 use text::*;
 
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -654,30 +654,33 @@ struct SpeedState {
 
 struct HealthCache {
     values: Arc<Mutex<HashMap<PathBuf, DriveHealth>>>,
+    focus: Arc<Mutex<HashSet<PathBuf>>>,
     stop: Arc<AtomicBool>,
 }
 
 impl HealthCache {
     fn new() -> Self {
         let values = Arc::new(Mutex::new(HashMap::new()));
+        let focus = Arc::new(Mutex::new(HashSet::new()));
         let stop = Arc::new(AtomicBool::new(false));
         #[cfg(not(test))]
         {
             let values = Arc::clone(&values);
+            let focus = Arc::clone(&focus);
             let stop = Arc::clone(&stop);
             thread::spawn(move || {
                 while !stop.load(Ordering::SeqCst) {
-                    let refreshed: Vec<(PathBuf, DriveHealth)> = volume::list_volumes()
-                        .into_iter()
-                        .map(|volume| {
-                            let health = crate::health::read_health(&volume.mount_point);
-                            (volume.mount_point, health)
-                        })
-                        .collect();
+                    let targets: Vec<PathBuf> = focus
+                        .lock()
+                        .map(|focus| focus.iter().cloned().collect())
+                        .unwrap_or_default();
+                    let mut refreshed = HashMap::new();
+                    for mount in targets {
+                        let health = crate::health::read_health(&mount);
+                        refreshed.insert(mount, health);
+                    }
                     if let Ok(mut cache) = values.lock() {
-                        for (mount, health) in refreshed {
-                            cache.insert(mount, health);
-                        }
+                        *cache = refreshed;
                     }
                     for _ in 0..100 {
                         if stop.load(Ordering::SeqCst) {
@@ -688,7 +691,17 @@ impl HealthCache {
                 }
             });
         }
-        Self { values, stop }
+        Self {
+            values,
+            focus,
+            stop,
+        }
+    }
+
+    fn set_focus(&self, targets: Vec<PathBuf>) {
+        if let Ok(mut focus) = self.focus.lock() {
+            *focus = targets.into_iter().collect();
+        }
     }
 
     fn get(&self, mount: &std::path::Path) -> DriveHealth {
