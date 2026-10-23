@@ -22,9 +22,14 @@ pub fn drive_suffix(target: &Path) -> String {
     let mut suffix = letter.to_ascii_uppercase().to_string();
     let trimmed = path.trim_end_matches(['\\', '/']);
     let is_drive_path = trimmed.as_bytes().get(1) == Some(&b':');
-    if is_drive_path && trimmed.len() > 2 {
+    if (is_drive_path && trimmed.len() > 2) || trimmed.contains(['/', '\\']) {
         let mut hash = 0x811c_9dc5u32;
-        for byte in trimmed.to_ascii_lowercase().bytes() {
+        let hash_path = if cfg!(windows) {
+            trimmed.to_ascii_lowercase()
+        } else {
+            trimmed.to_string()
+        };
+        for byte in hash_path.bytes() {
             hash ^= u32::from(byte);
             hash = hash.wrapping_mul(0x0100_0193);
         }
@@ -279,6 +284,10 @@ mod tests {
         assert_ne!(
             quality_file_name(Path::new("E:\\a")),
             quality_file_name(Path::new("E:\\b"))
+        );
+        assert_ne!(
+            quality_file_name(Path::new("/mnt/a")),
+            quality_file_name(Path::new("/mnt/b"))
         );
     }
 }

@@ -3,6 +3,7 @@
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub enum HealthStatus {
     #[default]
     Unknown,
@@ -31,7 +32,9 @@ pub struct TemperatureSample {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DriveHealth {
     pub temperature_c: Option<i32>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub warning_c: Option<i16>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub critical_c: Option<i16>,
     pub status: HealthStatus,
     pub disk_number: Option<u32>,
