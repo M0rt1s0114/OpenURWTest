@@ -38,9 +38,14 @@ pub fn open_bench_file(path: &Path, direct: bool) -> io::Result<Box<dyn BenchFil
     options.read(true).write(true).create(true);
 
     #[cfg(windows)]
-    if direct {
+    {
         use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(FILE_FLAG_NO_BUFFERING);
+        const FILE_SHARE_READ: u32 = 1;
+        const FILE_SHARE_WRITE: u32 = 2;
+        options.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE);
+        if direct {
+            options.custom_flags(FILE_FLAG_NO_BUFFERING);
+        }
     }
 
     #[cfg(unix)]
@@ -50,7 +55,62 @@ pub fn open_bench_file(path: &Path, direct: bool) -> io::Result<Box<dyn BenchFil
     }
 
     let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) };
+        if result != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
     Ok(Box::new(FileBackend { file }))
+}
+
+/// Remove benchmark files left behind by dead processes. Files still held open by
+/// a live worker are skipped: Windows denies deletion without FILE_SHARE_DELETE,
+/// and Unix holds a shared flock.
+pub fn cleanup_stale_bench_files(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with(crate::speed::suite::bench_file_prefix())
+            || !name.ends_with(".DAT")
+            || !entry.file_type().is_ok_and(|kind| kind.is_file())
+        {
+            continue;
+        }
+        let path = entry.path();
+        #[cfg(windows)]
+        {
+            let _ = std::fs::remove_file(&path);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let Ok(file) = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+            else {
+                continue;
+            };
+            let locked =
+                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+            if locked {
+                let _ = std::fs::remove_file(&path);
+                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            }
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 /// Create or resize the benchmark file before opening it for direct I/O.

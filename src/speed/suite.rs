@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use crate::health;
 use crate::io::AlignedBlock;
 use crate::pause::PauseToken;
-use crate::speed::backend::{open_bench_file, prepare_file};
+use crate::speed::backend::{cleanup_stale_bench_files, open_bench_file, prepare_file};
 use crate::speed::metrics::{Counters, MetricsSnapshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +26,11 @@ pub struct SpeedPreset {
 }
 
 pub fn bench_file_name() -> String {
-    format!("BENCH{}.DAT", std::process::id())
+    format!("URW_BENCH_{}.DAT", std::process::id())
+}
+
+pub fn bench_file_prefix() -> &'static str {
+    "URW_BENCH_"
 }
 
 pub const PRESETS: [SpeedPreset; 4] = [
@@ -175,6 +179,7 @@ pub fn run_suite(
         }
     }
 
+    cleanup_stale_bench_files(target);
     let path = target.join(bench_file_name());
     let mut result = SuiteResult {
         file_size: options.file_size,
@@ -744,6 +749,19 @@ mod tests {
         assert_eq!(item.write.total_bytes, 64 * 1024);
         assert_eq!(item.read.total_bytes, 64 * 1024);
         assert_eq!(item.verify_errors, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cleanup_removes_only_stale_bench_files() {
+        let dir = temp_dir("bench-cleanup");
+        let stale = dir.join("URW_BENCH_999999.DAT");
+        let unrelated = dir.join("other.DAT");
+        std::fs::write(&stale, b"stale").expect("stale file");
+        std::fs::write(&unrelated, b"keep").expect("unrelated file");
+        cleanup_stale_bench_files(&dir);
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
