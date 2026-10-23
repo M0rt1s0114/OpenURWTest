@@ -481,7 +481,7 @@ struct RunState {
 struct ResultsState {
     target: PathBuf,
     summary: Summary,
-    analysis: Analysis,
+    analysis: Option<Analysis>,
     params: AnalysisParams,
     axis: Axis,
     message: String,

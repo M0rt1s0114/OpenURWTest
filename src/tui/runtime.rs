@@ -228,7 +228,7 @@ impl App {
             match rx.try_recv() {
                 Ok(analysis) => {
                     if let Some(results) = self.results.as_mut() {
-                        results.analysis = analysis;
+                        results.analysis = Some(analysis);
                         results.message = "thresholds recalculated".to_string();
                     }
                     analysis_finished = true;
@@ -367,7 +367,7 @@ impl App {
         self.results = Some(ResultsState {
             target,
             summary,
-            analysis: Analysis::default(),
+            analysis: None,
             params,
             axis: Axis::Position,
             message,

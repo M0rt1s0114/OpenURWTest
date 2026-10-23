@@ -494,15 +494,17 @@ impl App {
                 summary.write_errors
             )),
         ]);
-        let stats_line = Line::styled(
-            format!(
-                "写阶段 峰值 {:.1} MiB/s   平均 {:.1} MiB/s   最低 {:.1} MiB/s",
-                results.analysis.peak_mibps,
-                results.analysis.mean_mibps,
-                results.analysis.min_mibps
-            ),
-            self.theme.dim(),
-        );
+        let stats_line = if let Some(analysis) = &results.analysis {
+            Line::styled(
+                format!(
+                    "写阶段 峰值 {:.1} MiB/s   平均 {:.1} MiB/s   最低 {:.1} MiB/s",
+                    analysis.peak_mibps, analysis.mean_mibps, analysis.min_mibps
+                ),
+                self.theme.dim(),
+            )
+        } else {
+            Line::styled("分析中…", self.theme.dim())
+        };
         let temperature_line = {
             let history = &results.summary.temperature_history;
             if history.is_empty() {
@@ -539,32 +541,38 @@ impl App {
         self.render_chart(frame, layout[1], results);
 
         let mut event_lines: Vec<Line> = Vec::new();
-        if results.analysis.events.is_empty() {
-            event_lines.push(Line::styled("当前阈值下没有掉速事件", self.theme.dim()));
-        } else {
-            for event in results.analysis.events.iter().take(8) {
-                let style = match event.kind {
-                    SlowKind::Spike => self.theme.danger(),
-                    SlowKind::Sustained => self.theme.warning(),
-                };
-                event_lines.push(Line::styled(
-                    format!(
-                        "{}  {}  {:.1} MiB/s  深度 {:.0}%  持续 {}  位置 {}",
-                        event.kind.label(),
-                        event.phase.label(),
-                        event.min_mibps,
-                        event.depth_percent,
-                        format_millis(event.duration_ms),
-                        format_bytes(event.start_position)
-                    ),
-                    style,
-                ));
+        let event_count = if let Some(analysis) = &results.analysis {
+            if analysis.events.is_empty() {
+                event_lines.push(Line::styled("当前阈值下没有掉速事件", self.theme.dim()));
+            } else {
+                for event in analysis.events.iter().take(8) {
+                    let style = match event.kind {
+                        SlowKind::Spike => self.theme.danger(),
+                        SlowKind::Sustained => self.theme.warning(),
+                    };
+                    event_lines.push(Line::styled(
+                        format!(
+                            "{}  {}  {:.1} MiB/s  深度 {:.0}%  持续 {}  位置 {}",
+                            event.kind.label(),
+                            event.phase.label(),
+                            event.min_mibps,
+                            event.depth_percent,
+                            format_millis(event.duration_ms),
+                            format_bytes(event.start_position)
+                        ),
+                        style,
+                    ));
+                }
             }
-        }
+            analysis.events.len()
+        } else {
+            event_lines.push(Line::styled("分析中…", self.theme.dim()));
+            0
+        };
         frame.render_widget(
             Paragraph::new(event_lines).block(
                 Block::bordered()
-                    .title(format!(" 掉速事件 ({}) ", results.analysis.events.len()))
+                    .title(format!(" 掉速事件 ({event_count}) "))
                     .border_style(self.theme.border()),
             ),
             layout[2],
@@ -600,8 +608,18 @@ impl App {
     }
 
     pub(super) fn render_chart(&self, frame: &mut Frame, area: Rect, results: &ResultsState) {
-        let samples: Vec<_> = results
-            .analysis
+        let Some(analysis) = &results.analysis else {
+            frame.render_widget(
+                Paragraph::new("分析中…").block(
+                    Block::bordered()
+                        .title(" Speed ")
+                        .border_style(self.theme.border()),
+                ),
+                area,
+            );
+            return;
+        };
+        let samples: Vec<_> = analysis
             .samples
             .iter()
             .filter(|sample| match results.axis {
@@ -753,8 +771,7 @@ impl App {
                     .data(&threshold_points),
             );
         }
-        let event_points: Vec<(f64, f64)> = results
-            .analysis
+        let event_points: Vec<(f64, f64)> = analysis
             .events
             .iter()
             .map(|event| {
