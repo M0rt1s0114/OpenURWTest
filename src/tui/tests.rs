@@ -263,6 +263,25 @@ fn small_terminal_shows_size_guard() {
 }
 
 #[test]
+fn small_terminal_shows_cancel_prompt() {
+    let mut app = app_with_multi(2);
+    app.multi.as_mut().unwrap().cancel_menu = true;
+    let backend = ratatui::backend::TestBackend::new(80, 24);
+    let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+    terminal.draw(|frame| app.render(frame)).expect("draw");
+    let buffer = terminal.backend().buffer();
+    let mut output = String::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            output.push_str(buffer[(x, y)].symbol());
+        }
+    }
+    let text = normalized(&output);
+    assert!(text.contains("停止测试"));
+    assert!(text.contains("2/S全部盘"));
+}
+
+#[test]
 fn speed_run_shows_total_progress_and_selected_ordinal() {
     let mut app = app_with_multi(1);
     app.multi.as_mut().unwrap().kind = TestKind::Speed;

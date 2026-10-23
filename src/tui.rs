@@ -835,10 +835,36 @@ impl App {
         self.hotspots.borrow_mut().clear();
         let area = frame.area();
         if area.width < 100 || area.height < 26 {
-            if let Some(line) = self.compact_run_line() {
+            let mut lines: Vec<Line> = Vec::new();
+            let multi_cancel = self.multi.as_ref().is_some_and(|multi| multi.cancel_menu);
+            if self.screen == Screen::Run && self.cancel_pending {
+                lines.push(Line::from("确认取消当前测试？"));
+                lines.push(Line::from("Enter / y 取消    Esc / n 返回"));
+            } else if self.screen == Screen::MultiRun && multi_cancel {
+                let multiple = self
+                    .multi
+                    .as_ref()
+                    .is_some_and(|multi| multi.tasks.len() > 1);
+                lines.push(Line::from("停止测试？"));
+                if multiple {
+                    lines.push(Line::from(
+                        "1 / Enter 当前盘    2 / S 全部盘    Esc / 3 返回",
+                    ));
+                } else {
+                    lines.push(Line::from("Enter 停止    Esc 返回"));
+                }
+            } else if let Some(line) = self.compact_run_line() {
+                lines.push(Line::from(line));
+                if self.screen == Screen::MultiRun {
+                    lines.push(Line::from("p 暂停/继续    Tab 切换    Esc 停止菜单"));
+                } else {
+                    lines.push(Line::from("p 暂停/继续    Esc 取消"));
+                }
+            }
+            if !lines.is_empty() {
                 frame.render_widget(Clear, area);
                 frame.render_widget(
-                    Paragraph::new(line)
+                    Paragraph::new(lines)
                         .alignment(ratatui::layout::Alignment::Center)
                         .block(Block::bordered().title(" 运行中 ")),
                     area,
