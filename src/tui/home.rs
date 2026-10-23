@@ -155,7 +155,7 @@ impl App {
         );
 
         let hints = Paragraph::new(format!(
-            "Space 选择  a 全选  n 清空  m SC/QC 模式切换  Enter 设置  r 刷新  F2 鼠标:{}  q 退出",
+            "Space 选择  a 全选  n 清空所有勾选  m SC/QC 模式切换  Enter 设置  r 刷新  F2 鼠标:{}  q 退出",
             if self.mouse_enabled { "开" } else { "关" }
         ))
         .style(self.theme.dim());
