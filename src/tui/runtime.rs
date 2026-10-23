@@ -16,6 +16,17 @@ impl App {
     }
 
     pub(super) fn rescan(&mut self) {
+        if self.rescan_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(volume::list_volumes());
+        });
+        self.rescan_rx = Some(rx);
+    }
+
+    fn apply_rescan(&mut self, volumes: Vec<VolumeInfo>) {
         let current = self
             .volumes
             .get(self.selected)
@@ -25,7 +36,7 @@ impl App {
             .iter()
             .map(|volume| volume.mount_point.clone())
             .collect();
-        self.volumes = volume::list_volumes();
+        self.volumes = volumes;
         let added: Vec<String> = self
             .volumes
             .iter()
@@ -89,6 +100,13 @@ impl App {
     }
 
     pub(super) fn tick(&mut self) {
+        if let Some(rx) = self.rescan_rx.take() {
+            match rx.try_recv() {
+                Ok(volumes) => self.apply_rescan(volumes),
+                Err(mpsc::TryRecvError::Empty) => self.rescan_rx = Some(rx),
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
         self.update_health_focus();
         if self.screen == Screen::Home && self.last_refresh.elapsed() >= Duration::from_secs(5) {
             self.rescan();
