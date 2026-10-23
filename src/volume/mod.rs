@@ -89,7 +89,7 @@ pub fn find_volume(target: &Path) -> Option<VolumeInfo> {
 
 /// Find the mounted volume containing a path (not necessarily its root).
 pub fn find_volume_containing(target: &Path) -> Option<VolumeInfo> {
-    let canonical = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    let canonical = canonical_with_missing(target);
     list_volumes()
         .into_iter()
         .filter(|volume| {
@@ -98,6 +98,32 @@ pub fn find_volume_containing(target: &Path) -> Option<VolumeInfo> {
             canonical.starts_with(&root)
         })
         .max_by_key(|volume| volume.mount_point.as_os_str().len())
+}
+
+fn canonical_with_missing(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    let mut current = absolute.clone();
+    let mut missing = Vec::new();
+    while !current.exists() {
+        let Some(name) = current.file_name().map(|name| name.to_os_string()) else {
+            break;
+        };
+        missing.push(name);
+        if !current.pop() {
+            break;
+        }
+    }
+    let mut canonical = std::fs::canonicalize(&current).unwrap_or(current);
+    for name in missing.into_iter().rev() {
+        canonical.push(name);
+    }
+    canonical
 }
 
 fn normalize_existing_path(path: &Path) -> PathBuf {
@@ -111,4 +137,18 @@ pub fn free_space(target: &Path) -> Result<u64> {
         bail!("target does not exist: {}", target.display());
     }
     available_space(&target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_with_missing_keeps_suffix() {
+        let base = std::env::temp_dir();
+        let missing = base.join("urwtest-canonical-missing-child");
+        let normalized = canonical_with_missing(&missing);
+        assert!(normalized.ends_with("urwtest-canonical-missing-child"));
+        assert!(normalized.starts_with(canonical_with_missing(&base)));
+    }
 }
