@@ -60,6 +60,9 @@ use crate::volume::{self, VolumeInfo};
 type SpeedSeries = Vec<(String, Vec<(u64, f64)>, ratatui::style::Color)>;
 
 fn completion_notification(title: &str) {
+    if std::env::var_os("NO_BELL").is_some() || std::env::var_os("URWTEST_NO_BELL").is_some() {
+        return;
+    }
     let _ = title;
     #[cfg(not(test))]
     {
