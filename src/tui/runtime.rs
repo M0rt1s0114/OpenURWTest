@@ -226,8 +226,10 @@ impl App {
         let mut analysis_finished = false;
         if let Some(rx) = self.analysis_rx.take() {
             match rx.try_recv() {
-                Ok(analysis) => {
-                    if let Some(results) = self.results.as_mut() {
+                Ok((generation, analysis)) => {
+                    if let Some(results) = self.results.as_mut()
+                        && results.generation == generation
+                    {
                         results.analysis = Some(analysis);
                         results.message = "thresholds recalculated".to_string();
                     }
@@ -256,13 +258,16 @@ impl App {
         };
         let summary = results.summary.clone();
         let params = results.params;
+        self.analysis_generation += 1;
+        let generation = self.analysis_generation;
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let analysis = analysis::analyze(&summary.trace, &params);
-            let _ = tx.send(analysis);
+            let _ = tx.send((generation, analysis));
         });
         self.analysis_rx = Some(rx);
         if let Some(results) = self.results.as_mut() {
+            results.generation = generation;
             results.message = "recalculating thresholds...".to_string();
         }
     }
@@ -358,16 +363,19 @@ impl App {
             }
         }
         let analysis_summary = summary.clone();
+        self.analysis_generation += 1;
+        let generation = self.analysis_generation;
         let (analysis_tx, analysis_rx) = mpsc::channel();
         thread::spawn(move || {
             let analysis = analysis::analyze(&analysis_summary.trace, &params);
-            let _ = analysis_tx.send(analysis);
+            let _ = analysis_tx.send((generation, analysis));
         });
         self.analysis_rx = Some(analysis_rx);
         self.results = Some(ResultsState {
             target,
             summary,
             analysis: None,
+            generation,
             params,
             axis: Axis::Position,
             message,

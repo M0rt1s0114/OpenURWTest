@@ -482,6 +482,7 @@ struct ResultsState {
     target: PathBuf,
     summary: Summary,
     analysis: Option<Analysis>,
+    generation: u64,
     params: AnalysisParams,
     axis: Axis,
     message: String,
@@ -747,7 +748,8 @@ struct App {
     results: Option<ResultsState>,
     export_rx: Option<mpsc::Receiver<String>>,
     multi_export_rx: Option<mpsc::Receiver<String>>,
-    analysis_rx: Option<mpsc::Receiver<crate::analysis::Analysis>>,
+    analysis_rx: Option<mpsc::Receiver<(u64, crate::analysis::Analysis)>>,
+    analysis_generation: u64,
     analysis_pending: bool,
     cancel_pending: bool,
 }
@@ -787,6 +789,7 @@ impl App {
             export_rx: None,
             multi_export_rx: None,
             analysis_rx: None,
+            analysis_generation: 0,
             analysis_pending: false,
             cancel_pending: false,
         }
