@@ -164,6 +164,7 @@ impl App {
                     }
                     TuiEvent::PhaseStart { phase } => {
                         run.view.phase = Some(phase);
+                        run.view.speed_history.clear();
                         run.view.log.push_back(format!("{} started", phase.label()));
                     }
                     TuiEvent::Progress(progress) => {
@@ -664,6 +665,7 @@ impl App {
                     TuiEvent::PhaseStart { phase } => {
                         task.status = TaskStatus::Running;
                         task.view.phase = Some(phase);
+                        task.view.speed_history.clear();
                         task.view
                             .log
                             .push_back(format!("{} started", phase.label()));
