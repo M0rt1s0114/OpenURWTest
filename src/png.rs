@@ -54,6 +54,29 @@ pub(super) fn ensure_font() {
 
 type Bucket = ((f64, f64), (f64, f64));
 
+fn phase_average(analysis: &Analysis, phase: Phase, max_time: f64) -> Vec<(f64, f64)> {
+    const BUCKETS: usize = 1200;
+    let width = (max_time / BUCKETS as f64).max(0.5);
+    let mut sums = vec![0.0f64; BUCKETS + 1];
+    let mut counts = vec![0u64; BUCKETS + 1];
+    for sample in analysis
+        .samples
+        .iter()
+        .filter(|sample| sample.phase == phase)
+    {
+        let time = sample.run_ms as f64 / 1000.0;
+        let index = ((time / width) as usize).min(BUCKETS);
+        sums[index] += sample.speed_mibps;
+        counts[index] += 1;
+    }
+    sums.into_iter()
+        .zip(counts)
+        .enumerate()
+        .filter(|(_, (_, count))| *count > 0)
+        .map(|(index, (sum, count))| (index as f64 * width, sum / count as f64))
+        .collect()
+}
+
 fn compact(points: &[(f64, f64)], max_x: f64) -> Vec<(f64, f64)> {
     const BUCKETS: usize = 1600;
     if points.len() <= BUCKETS {
@@ -110,10 +133,12 @@ pub fn write_quality_png(
         .iter()
         .map(|sample| sample.run_ms as f64 / 1000.0)
         .fold(1.0, f64::max);
-    let max_speed = analysis
-        .samples
+    let write = phase_average(analysis, Phase::Write, max_time);
+    let read = phase_average(analysis, Phase::Verify, max_time);
+    let max_speed = write
         .iter()
-        .map(|sample| sample.speed_mibps)
+        .chain(read.iter())
+        .map(|(_, speed)| *speed)
         .fold(1.0, f64::max)
         * 1.1;
     let temperature: Vec<(f64, f64)> = temperatures
@@ -168,20 +193,6 @@ pub fn write_quality_png(
             .map_err(draw_error)?;
     }
 
-    let write: Vec<(f64, f64)> = analysis
-        .samples
-        .iter()
-        .filter(|sample| sample.phase == Phase::Write)
-        .map(|sample| (sample.run_ms as f64 / 1000.0, sample.speed_mibps))
-        .collect();
-    let write = compact(&write, max_time);
-    let read: Vec<(f64, f64)> = analysis
-        .samples
-        .iter()
-        .filter(|sample| sample.phase == Phase::Verify)
-        .map(|sample| (sample.run_ms as f64 / 1000.0, sample.speed_mibps))
-        .collect();
-    let read = compact(&read, max_time);
     if !write.is_empty() {
         chart
             .draw_series(LineSeries::new(write, BLUE.stroke_width(2)))
