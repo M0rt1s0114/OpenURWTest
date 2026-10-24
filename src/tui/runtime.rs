@@ -1,6 +1,7 @@
 //! Run lifecycle, health refresh, and export orchestration.
 
 use super::*;
+use crate::png;
 
 impl App {
     pub(super) fn selected_volume(&self) -> Option<&VolumeInfo> {
@@ -1217,6 +1218,7 @@ impl App {
             .unwrap_or_default();
         let directory = export_directory_for(&target).join("multi");
         let png_inputs = self.speed_png_inputs();
+        let quality_inputs = self.quality_png_inputs();
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let mut count = 0usize;
@@ -1228,6 +1230,15 @@ impl App {
             for (target, result) in &png_inputs {
                 match png_speed::write_speed_pngs(&directory, target, result, false) {
                     Ok(files) => count += files.len(),
+                    Err(value) => error = Some(format!("PNG export failed: {value}")),
+                }
+            }
+            for (target, summary) in &quality_inputs {
+                let params = AnalysisParams::default();
+                let analysis = analysis::analyze(&summary.trace, &params);
+                let path = directory.join(png::quality_file_name(target));
+                match png::write_png(&path, target, &analysis, &summary.temperature_history) {
+                    Ok(()) => count += 1,
                     Err(value) => error = Some(format!("PNG export failed: {value}")),
                 }
             }
@@ -1267,6 +1278,15 @@ impl App {
                 Err(value) => error = Some(format!("PNG export failed: {value}")),
             }
         }
+        for (target, summary) in self.quality_png_inputs() {
+            let params = AnalysisParams::default();
+            let analysis = analysis::analyze(&summary.trace, &params);
+            let path = directory.join(png::quality_file_name(&target));
+            match png::write_png(&path, &target, &analysis, &summary.temperature_history) {
+                Ok(()) => count += 1,
+                Err(value) => error = Some(format!("PNG export failed: {value}")),
+            }
+        }
         let message = if let Some(error) = error {
             error
         } else {
@@ -1275,6 +1295,24 @@ impl App {
         if let Some(multi) = self.multi.as_mut() {
             multi.export_message = message;
         }
+    }
+
+    fn quality_png_inputs(&self) -> Vec<(PathBuf, Summary)> {
+        let Some(multi) = self.multi.as_ref() else {
+            return Vec::new();
+        };
+        if multi.kind != TestKind::Quality {
+            return Vec::new();
+        }
+        multi
+            .tasks
+            .iter()
+            .filter_map(|task| {
+                task.summary
+                    .clone()
+                    .map(|summary| (task.target_path.clone(), summary))
+            })
+            .collect()
     }
 
     fn speed_png_inputs(&self) -> Vec<(PathBuf, SuiteResult)> {
