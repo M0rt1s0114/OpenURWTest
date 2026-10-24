@@ -171,9 +171,6 @@ impl App {
                         run.view
                             .speed_history
                             .push((progress.bytes, progress.current_mibps));
-                        if run.view.speed_history.len() > 240 {
-                            run.view.speed_history.remove(0);
-                        }
                     }
                     TuiEvent::PhaseDone { phase, stats } => {
                         run.view.log.push_back(format!(
@@ -675,9 +672,6 @@ impl App {
                         task.view
                             .speed_history
                             .push((progress.bytes, progress.current_mibps));
-                        if task.view.speed_history.len() > 240 {
-                            task.view.speed_history.remove(0);
-                        }
                     }
                     TuiEvent::PhaseDone { phase, stats } => {
                         task.view.log.push_back(format!(
@@ -765,14 +759,8 @@ impl App {
                                 match phase {
                                     SuitePhase::Write => {
                                         suite.write_history.push((done_bytes, mibps));
-                                        if suite.write_history.len() > 240 {
-                                            suite.write_history.remove(0);
-                                        }
                                         if let Some(curve) = suite.write_curves.get_mut(index) {
                                             curve.push((done_bytes, mibps));
-                                            if curve.len() > 240 {
-                                                curve.remove(0);
-                                            }
                                         }
                                         if let Some(samples) = suite.write_samples.get_mut(index) {
                                             samples.push(mibps);
@@ -780,14 +768,8 @@ impl App {
                                     }
                                     SuitePhase::Verify => {
                                         suite.read_history.push((done_bytes, mibps));
-                                        if suite.read_history.len() > 240 {
-                                            suite.read_history.remove(0);
-                                        }
                                         if let Some(curve) = suite.read_curves.get_mut(index) {
                                             curve.push((done_bytes, mibps));
-                                            if curve.len() > 240 {
-                                                curve.remove(0);
-                                            }
                                         }
                                         if let Some(samples) = suite.read_samples.get_mut(index) {
                                             samples.push(mibps);

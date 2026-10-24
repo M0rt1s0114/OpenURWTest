@@ -715,11 +715,7 @@ impl App {
             datasets.push(
                 Dataset::default()
                     .name("write")
-                    .marker(if self.ascii {
-                        Marker::Dot
-                    } else {
-                        Marker::Braille
-                    })
+                    .marker(Marker::Braille)
                     .graph_type(GraphType::Line)
                     .style(ratatui::style::Style::default().fg(write_color))
                     .data(&write_points),
@@ -729,11 +725,7 @@ impl App {
             datasets.push(
                 Dataset::default()
                     .name("read+verify")
-                    .marker(if self.ascii {
-                        Marker::Dot
-                    } else {
-                        Marker::Braille
-                    })
+                    .marker(Marker::Braille)
                     .graph_type(GraphType::Line)
                     .style(ratatui::style::Style::default().fg(verify_color))
                     .data(&verify_points),

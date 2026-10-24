@@ -32,11 +32,7 @@ impl App {
             .map(|(index, (name, _, color))| {
                 Dataset::default()
                     .name(name.clone())
-                    .marker(if self.ascii {
-                        Marker::Dot
-                    } else {
-                        Marker::Braille
-                    })
+                    .marker(Marker::Braille)
                     .graph_type(GraphType::Line)
                     .style(ratatui::style::Style::default().fg(*color))
                     .data(&data[index])

@@ -24,11 +24,7 @@ impl App {
             .collect();
         let dataset = Dataset::default()
             .name("speed")
-            .marker(if self.ascii {
-                Marker::Dot
-            } else {
-                Marker::Braille
-            })
+            .marker(Marker::Braille)
             .graph_type(GraphType::Line)
             .style(style)
             .data(&points);
