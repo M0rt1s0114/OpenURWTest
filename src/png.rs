@@ -143,43 +143,39 @@ pub fn write_quality_png(
         .map(|(_, speed)| *speed)
         .fold(1.0, f64::max)
         * 1.1;
-    let write_end_ms = analysis
-        .samples
+    let mut write_temperature: Vec<(f64, f64)> = Vec::new();
+    let mut read_temperature: Vec<(f64, f64)> = Vec::new();
+    for sample in temperatures {
+        let Some(trace) = analysis
+            .samples
+            .iter()
+            .filter(|point| point.run_ms <= sample.elapsed_ms)
+            .max_by_key(|point| point.run_ms)
+        else {
+            continue;
+        };
+        let point = (trace.position as f64 / 1e9, sample.temperature_c as f64);
+        match trace.phase {
+            Phase::Write => write_temperature.push(point),
+            Phase::Verify => read_temperature.push(point),
+        }
+    }
+    let write_temperature = compact(&write_temperature, max_x);
+    let read_temperature = compact(&read_temperature, max_x);
+    let temperature_min = write_temperature
         .iter()
-        .filter(|sample| sample.phase == Phase::Write)
-        .map(|sample| sample.run_ms)
-        .max()
-        .unwrap_or(0);
-    let temperature: Vec<(f64, f64)> = temperatures
+        .chain(read_temperature.iter())
+        .map(|(_, value)| *value)
+        .fold(f64::MAX, f64::min);
+    let temperature_max = write_temperature
         .iter()
-        .filter(|sample| sample.elapsed_ms <= write_end_ms)
-        .map(|sample| {
-            let position = analysis
-                .samples
-                .iter()
-                .filter(|point| point.phase == Phase::Write && point.run_ms <= sample.elapsed_ms)
-                .max_by_key(|point| point.run_ms)
-                .map(|point| point.position)
-                .unwrap_or(0);
-            (position as f64 / 1e9, sample.temperature_c as f64)
-        })
-        .collect();
-    let temperature = compact(&temperature, max_x);
-    let (min_temp, max_temp) = if temperature.is_empty() {
+        .chain(read_temperature.iter())
+        .map(|(_, value)| *value)
+        .fold(f64::MIN, f64::max);
+    let (min_temp, max_temp) = if write_temperature.is_empty() && read_temperature.is_empty() {
         (0.0, 1.0)
     } else {
-        (
-            temperature
-                .iter()
-                .map(|(_, value)| *value)
-                .fold(f64::MAX, f64::min)
-                - 5.0,
-            temperature
-                .iter()
-                .map(|(_, value)| *value)
-                .fold(f64::MIN, f64::max)
-                + 5.0,
-        )
+        (temperature_min - 5.0, temperature_max + 5.0)
     };
     let chart = ChartBuilder::on(&root)
         .caption(
@@ -199,7 +195,7 @@ pub fn write_quality_png(
         .y_desc("MiB/s")
         .draw()
         .map_err(draw_error)?;
-    if !temperature.is_empty() {
+    if !write_temperature.is_empty() || !read_temperature.is_empty() {
         chart
             .configure_secondary_axes()
             .y_desc("Temperature (C)")
@@ -221,12 +217,27 @@ pub fn write_quality_png(
             .label("read+verify")
             .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], GREEN.stroke_width(2)));
     }
-    if !temperature.is_empty() {
+    if !write_temperature.is_empty() {
         chart
-            .draw_secondary_series(LineSeries::new(temperature, RED.stroke_width(2)))
+            .draw_secondary_series(LineSeries::new(write_temperature, RED.stroke_width(2)))
             .map_err(draw_error)?
-            .label("temperature")
+            .label("temp write")
             .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RED.stroke_width(2)));
+    }
+    if !read_temperature.is_empty() {
+        chart
+            .draw_secondary_series(LineSeries::new(
+                read_temperature,
+                RGBColor(255, 140, 0).stroke_width(2),
+            ))
+            .map_err(draw_error)?
+            .label("temp read")
+            .legend(|(x, y)| {
+                PathElement::new(
+                    vec![(x, y), (x + 20, y)],
+                    RGBColor(255, 140, 0).stroke_width(2),
+                )
+            });
     }
     chart
         .configure_series_labels()
