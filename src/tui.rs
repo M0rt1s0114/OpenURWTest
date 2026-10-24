@@ -618,7 +618,9 @@ struct MultiRun {
     cancel_menu: bool,
     export_message: String,
     auto_export: bool,
+    delete_after: bool,
     exported: bool,
+    deleted: bool,
     notified: bool,
     results_scroll: usize,
 }

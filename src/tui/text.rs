@@ -9,10 +9,14 @@ pub(super) fn export_directory() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or(0);
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("urwtest-export")
-        .join(stamp.to_string())
+    let root = if let Some(profile) = std::env::var_os("USERPROFILE") {
+        PathBuf::from(profile).join("Documents")
+    } else if let Some(home) = std::env::var_os("HOME") {
+        PathBuf::from(home)
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    };
+    root.join("OpenURWTest-exports").join(stamp.to_string())
 }
 
 pub(super) fn export_directory_for(target: &Path) -> PathBuf {

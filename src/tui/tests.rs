@@ -169,12 +169,32 @@ fn app_with_multi(count: usize) -> App {
         cancel_menu: false,
         export_message: String::new(),
         auto_export: false,
+        delete_after: false,
         exported: false,
+        deleted: false,
         notified: false,
         results_scroll: 0,
     });
     app.screen = Screen::MultiRun;
     app
+}
+
+#[test]
+fn multi_quality_deletes_test_files_after_success() {
+    let directory =
+        std::env::temp_dir().join(format!("urwtest-multi-delete-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).expect("temp dir");
+    let file = directory.join(format::test_file_name(1));
+    std::fs::write(&file, b"data").expect("test file");
+    let mut app = app_with_multi(1);
+    let task = app.multi.as_mut().unwrap().tasks.first_mut().unwrap();
+    task.target_path = directory.clone();
+    task.status = TaskStatus::Done;
+    app.multi.as_mut().unwrap().delete_after = true;
+    app.tick_multi();
+    assert!(!file.exists(), "test file was not deleted");
+    let _ = std::fs::remove_dir_all(&directory);
 }
 
 #[test]

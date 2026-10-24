@@ -634,7 +634,9 @@ impl App {
             cancel_menu: false,
             export_message: String::new(),
             auto_export: settings.auto_export,
+            delete_after: settings.delete_after,
             exported: false,
+            deleted: false,
             notified: false,
             results_scroll: 0,
         });
@@ -871,6 +873,32 @@ impl App {
                     .tasks
                     .iter()
                     .all(|task| task.status == TaskStatus::Done && task.error.is_none());
+                if success
+                    && multi.delete_after
+                    && multi.kind == TestKind::Quality
+                    && !multi.deleted
+                {
+                    multi.deleted = true;
+                    let targets: Vec<PathBuf> = multi
+                        .tasks
+                        .iter()
+                        .map(|task| task.target_path.clone())
+                        .collect();
+                    let mut deleted = 0u32;
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        match format::delete_test_files(&target) {
+                            Ok(count) => deleted += count,
+                            Err(error) => errors.push(format!("{}: {error}", target.display())),
+                        }
+                    }
+                    multi.export_message = format!("deleted {deleted} test file(s)");
+                    if !errors.is_empty() {
+                        multi
+                            .export_message
+                            .push_str(&format!("; delete failed: {}", errors.join("; ")));
+                    }
+                }
                 completion_notification(if success {
                     "OpenURWTest - 多盘完成"
                 } else {
@@ -1161,7 +1189,9 @@ impl App {
             cancel_menu: false,
             export_message: String::new(),
             auto_export: true,
+            delete_after: false,
             exported: false,
+            deleted: false,
             notified: false,
             results_scroll: 0,
         });
