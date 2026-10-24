@@ -54,9 +54,9 @@ pub(super) fn ensure_font() {
 
 type Bucket = ((f64, f64), (f64, f64));
 
-fn phase_average(analysis: &Analysis, phase: Phase, max_time: f64) -> Vec<(f64, f64)> {
+fn phase_average(analysis: &Analysis, phase: Phase, max_position: u64) -> Vec<(f64, f64)> {
     const BUCKETS: usize = 1200;
-    let width = (max_time / BUCKETS as f64).max(0.5);
+    let width = (max_position as f64 / BUCKETS as f64).max(1.0);
     let mut sums = vec![0.0f64; BUCKETS + 1];
     let mut counts = vec![0u64; BUCKETS + 1];
     for sample in analysis
@@ -64,8 +64,7 @@ fn phase_average(analysis: &Analysis, phase: Phase, max_time: f64) -> Vec<(f64, 
         .iter()
         .filter(|sample| sample.phase == phase)
     {
-        let time = sample.run_ms as f64 / 1000.0;
-        let index = ((time / width) as usize).min(BUCKETS);
+        let index = ((sample.position as f64 / width) as usize).min(BUCKETS);
         sums[index] += sample.speed_mibps;
         counts[index] += 1;
     }
@@ -73,7 +72,7 @@ fn phase_average(analysis: &Analysis, phase: Phase, max_time: f64) -> Vec<(f64, 
         .zip(counts)
         .enumerate()
         .filter(|(_, (_, count))| *count > 0)
-        .map(|(index, (sum, count))| (index as f64 * width, sum / count as f64))
+        .map(|(index, (sum, count))| (index as f64 * width / 1e9, sum / count as f64))
         .collect()
 }
 
@@ -128,29 +127,44 @@ pub fn write_quality_png(
         return Ok(());
     }
 
-    let max_time = analysis
+    let max_position = analysis
         .samples
         .iter()
-        .map(|sample| sample.run_ms as f64 / 1000.0)
-        .fold(1.0, f64::max);
-    let write = phase_average(analysis, Phase::Write, max_time);
-    let read = phase_average(analysis, Phase::Verify, max_time);
+        .map(|sample| sample.position)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let max_x = max_position as f64 / 1e9;
+    let write = phase_average(analysis, Phase::Write, max_position);
+    let read = phase_average(analysis, Phase::Verify, max_position);
     let max_speed = write
         .iter()
         .chain(read.iter())
         .map(|(_, speed)| *speed)
         .fold(1.0, f64::max)
         * 1.1;
+    let write_end_ms = analysis
+        .samples
+        .iter()
+        .filter(|sample| sample.phase == Phase::Write)
+        .map(|sample| sample.run_ms)
+        .max()
+        .unwrap_or(0);
     let temperature: Vec<(f64, f64)> = temperatures
         .iter()
+        .filter(|sample| sample.elapsed_ms <= write_end_ms)
         .map(|sample| {
-            (
-                sample.elapsed_ms as f64 / 1000.0,
-                sample.temperature_c as f64,
-            )
+            let position = analysis
+                .samples
+                .iter()
+                .filter(|point| point.phase == Phase::Write && point.run_ms <= sample.elapsed_ms)
+                .max_by_key(|point| point.run_ms)
+                .map(|point| point.position)
+                .unwrap_or(0);
+            (position as f64 / 1e9, sample.temperature_c as f64)
         })
         .collect();
-    let temperature = compact(&temperature, max_time);
+    let temperature = compact(&temperature, max_x);
     let (min_temp, max_temp) = if temperature.is_empty() {
         (0.0, 1.0)
     } else {
@@ -176,12 +190,12 @@ pub fn write_quality_png(
         .x_label_area_size(54)
         .y_label_area_size(80)
         .right_y_label_area_size(80)
-        .build_cartesian_2d(0.0f64..max_time, 0.0f64..max_speed)
+        .build_cartesian_2d(0.0f64..max_x, 0.0f64..max_speed)
         .map_err(draw_error)?;
-    let mut chart = chart.set_secondary_coord(0.0f64..max_time, min_temp..max_temp);
+    let mut chart = chart.set_secondary_coord(0.0f64..max_x, min_temp..max_temp);
     chart
         .configure_mesh()
-        .x_desc("time (s)")
+        .x_desc("position (GB)")
         .y_desc("MiB/s")
         .draw()
         .map_err(draw_error)?;
