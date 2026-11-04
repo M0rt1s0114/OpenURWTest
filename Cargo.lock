@@ -1426,9 +1426,9 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rust_xlsxwriter"
-version = "0.101.0"
+version = "0.102.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49aa1d1558e9465f5053bf9fb5361fe75db827c6a4423d5e5fe72096622f8908"
+checksum = "6ca3d0e879a578c1313c2800ab0c6c029d38eed18098675e50341a30d32372ed"
 dependencies = [
  "zip",
 ]
@@ -1846,9 +1846,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-width"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "urwtest-rs"
